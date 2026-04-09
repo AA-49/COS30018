@@ -257,7 +257,7 @@ public class DealerBuyerScreen extends JFrame {
     public void show() {
         pack();
         centerOnScreen();
-        setVisible(true);
+        super.show();
     }
 
     private void centerOnScreen() {
