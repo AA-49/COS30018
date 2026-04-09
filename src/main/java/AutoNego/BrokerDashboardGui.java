@@ -442,7 +442,7 @@ public class BrokerDashboardGui extends JFrame {
         pack();
         setSize(1000, 600);
         centerOnScreen();
-        setVisible(true);
+        super.show();
     }
 
     private void centerOnScreen() {

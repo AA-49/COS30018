@@ -374,7 +374,7 @@ public class DealerNegotiationGui extends JFrame {
         pack();
         setSize(520, 600);
         centerOnScreen();
-        setVisible(true);
+        super.show();
     }
 
     private void centerOnScreen() {

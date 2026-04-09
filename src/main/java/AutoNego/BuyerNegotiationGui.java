@@ -404,7 +404,7 @@ public class BuyerNegotiationGui extends JFrame {
         pack();
         setSize(500, 600);
         centerOnScreen();
-        setVisible(true);
+        super.show();
     }
 
     private void centerOnScreen() {
