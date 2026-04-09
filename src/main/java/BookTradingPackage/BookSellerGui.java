@@ -30,12 +30,12 @@ import javax.swing.*;
 /**
   @author Giovanni Caire - TILAB
  */
-class BookSellerGui extends JFrame {    
+public class BookSellerGui extends JFrame {
     private BookSellerAgent myAgent;
     
     private JTextField titleField, priceField;
     
-    BookSellerGui(BookSellerAgent a) {
+    public BookSellerGui(BookSellerAgent a) {
         super(a.getLocalName());
         
         myAgent = a;
