@@ -15,6 +15,9 @@ public class SimpleBuyerAgent extends Agent {
     private final AID broker = new AID("broker", AID.ISLOCALNAME);
     private final Map<String, String> listingIdsByKey = new HashMap<>();
     private final Map<String, BuyerNegotiationGui> negotiationWindows = new HashMap<>();
+    private final Map<String, NegotiationState> negotiationStates = new HashMap<>();
+
+    private double myReservePrice = 0; // Kept private for auto-negotiation logic
 
     private BuyerInputGui inputGui;
     private BuyerMatchedCarsGui matchedCarsGui;
@@ -23,11 +26,14 @@ public class SimpleBuyerAgent extends Agent {
     protected void setup() {
         SwingUtilities.invokeLater(() -> {
             inputGui = new BuyerInputGui(this);
-            inputGui.setOnConfirmListener((brand, type, maxPrice) -> {
+            inputGui.setOnConfirmListener((brand, type, startingPrice, reservePrice) -> {
+
+                myReservePrice = reservePrice; 
+
                 ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
                 request.addReceiver(broker);
                 request.setConversationId("buyer-search");
-                request.setContent(DemoMessageCodec.encodeFields(brand, type, Double.toString(maxPrice)));
+                request.setContent(DemoMessageCodec.encodeFields(brand, type, Double.toString(startingPrice)));
                 send(request);
             });
             inputGui.show();
@@ -117,16 +123,45 @@ public class SimpleBuyerAgent extends Agent {
             matchedCarsGui.show();
         });
     }
+    
+    private static final class NegotiationState {
+        final String sessionId;
+        double currentOffer;
+        final double reservePrice;
+        int roundsElapsed;
+        static final int MAX_ROUNDS = 5;
+
+        NegotiationState(String sessionId, double firstOffer, double reservePrice) {
+            this.sessionId    = sessionId;
+            this.currentOffer = firstOffer;
+            this.reservePrice = reservePrice;
+        }
+    }
 
     private void handleNegotiationStart(ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 6);
         String sessionId = parts[0];
+        /**
+         * Creates a CarListing object by parsing a message array.
+         * 
+         * The message is decoded as follows:
+         * - parts[0]: Message type identifier (not used in this constructor)
+         * - parts[1]: Car Brand
+         * - parts[2]: Car Type
+         * - parts[3]: Car Max Price
+         * - parts[4]: Car Reserve Price
+         * @param parts The decoded message array split by a delimiter (typically space or comma)
+         */
         BuyerMatchedCarsGui.CarListing listing = new BuyerMatchedCarsGui.CarListing(
+                parts[1],
                 parts[2],
-                parts[3],
-                Double.parseDouble(parts[4]),
-                parts[5]
+                Double.parseDouble(parts[3]),
+                parts[4]
         );
+
+        double firstOffer = Double.parseDouble(parts[5]);
+        NegotiationState state = new NegotiationState(sessionId, firstOffer, myReservePrice);
+        negotiationStates.put(sessionId, state);
 
         SwingUtilities.invokeLater(() -> {
             BuyerNegotiationGui gui = new BuyerNegotiationGui(this, listing);
@@ -148,28 +183,62 @@ public class SimpleBuyerAgent extends Agent {
             });
             negotiationWindows.put(sessionId, gui);
             gui.show();
+
+            // Auto-send first offer immediately
+            sendNegotiationAction(sessionId, "COUNTER", state.currentOffer, ACLMessage.PROPOSE);
+            gui.addSystemMessage("Auto-negotiation started. Sent first offer: RM " +
+                String.format("%.2f", state.currentOffer));  
+            
         });
     }
 
     private void handleNegotiationUpdate(ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
-        BuyerNegotiationGui gui = negotiationWindows.get(parts[0]);
-        if (gui == null) {
-            return;
-        }
+        String sessionId = parts[0];
+        BuyerNegotiationGui gui = negotiationWindows.get(sessionId);
+        NegotiationState state  = negotiationStates.get(sessionId);
 
-        String event = parts[1];
+        if (gui == null) return;
+
+        String event  = parts[1];
         double amount = Double.parseDouble(parts[2]);
-        String note = parts[3];
+        String note   = parts[3];
 
-        if ("DEALER_COUNTER".equals(event)) {
+        if ("DEALER_COUNTER".equals(event) && state != null) {
             gui.addDealerOffer(amount, "Dealer counter-offer");
+
+            // AUTO-NEGOTIATION LOGIC
+            if (amount <= state.reservePrice) {
+                // Dealer came down to our reserve or below — accept immediately
+                gui.addSystemMessage("Dealer price is within budget. Accepting automatically.");
+                sendNegotiationAction(sessionId, "ACCEPT", amount, ACLMessage.ACCEPT_PROPOSAL);
+
+            } else if (state.roundsElapsed >= NegotiationState.MAX_ROUNDS) {
+                // Too many rounds, dealer won't budge enough — cancel
+                gui.addSystemMessage("Max rounds reached. Cancelling negotiation.");
+                sendNegotiationAction(sessionId, "CANCEL", 0, ACLMessage.REJECT_PROPOSAL);
+
+            } else {
+                // Concession strategy: move our offer up by equal steps toward reserve
+                state.roundsElapsed++;
+                double step = (state.reservePrice - state.currentOffer) / 
+                            (NegotiationState.MAX_ROUNDS - state.roundsElapsed + 1);
+                state.currentOffer = Math.min(state.currentOffer + step, state.reservePrice);
+
+                gui.addSystemMessage(String.format(
+                    "Round %d: Countering with RM %.2f", state.roundsElapsed, state.currentOffer));
+                sendNegotiationAction(sessionId, "COUNTER", state.currentOffer, ACLMessage.PROPOSE);
+            }
+
         } else if ("ACCEPTED".equals(event)) {
             gui.addSystemMessage(note);
             gui.lockNegotiation(true);
+            negotiationStates.remove(sessionId); 
+
         } else if ("FAILED".equals(event)) {
             gui.addSystemMessage(note);
             gui.lockNegotiation(false);
+            negotiationStates.remove(sessionId);
         }
     }
 
