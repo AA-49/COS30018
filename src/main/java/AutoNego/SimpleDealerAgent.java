@@ -25,7 +25,7 @@ public class SimpleDealerAgent extends Agent {
         SwingUtilities.invokeLater(() -> {
             inputGui = new DealerInputGui(this);
             inputGui.setOnListingListener(this::submitListingsToBroker);
-            inputGui.show();
+            inputGui.display();
         });
         addBehaviour(new DealerMessageRouter());
     }
@@ -56,7 +56,7 @@ public class SimpleDealerAgent extends Agent {
         ACLMessage message = new ACLMessage(ACLMessage.INFORM);
         message.addReceiver(broker);
         message.setConversationId("dealer-listings");
-        message.setContent(DemoMessageCodec.encodeRecords(records.toArray(String[]::new)));
+        message.setContent(DemoMessageCodec.encodeRecords(records.toArray(new String[0])));
         send(message);
     }
 
@@ -106,7 +106,7 @@ public class SimpleDealerAgent extends Agent {
                         sendInterestDecision(selected, ACLMessage.REJECT_PROPOSAL);
                     }
                 });
-                buyerScreen.show();
+                buyerScreen.display();
             } else {
                 buyerScreen.addInterest(interest);
             }
@@ -140,7 +140,7 @@ public class SimpleDealerAgent extends Agent {
                 }
             });
             negotiationWindows.put(sessionId, gui);
-            gui.show();
+            gui.display();
         });
     }
 

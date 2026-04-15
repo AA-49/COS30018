@@ -378,11 +378,11 @@ public class DealerInputGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         setSize(760, 480);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

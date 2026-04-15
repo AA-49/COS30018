@@ -414,11 +414,21 @@ public class BrokerDashboardGui extends JFrame {
                     s.latestOffer = latestOffer;
                     s.lastUpdated = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
 
-                    String statusStr = switch (status) {
-                        case IN_PROGRESS -> "In Progress";
-                        case DEAL_MADE   -> "Deal Made";
-                        case FAILED      -> "Failed";
-                    };
+                    String statusStr;
+                    switch (status) {
+                        case IN_PROGRESS:
+                            statusStr = "In Progress";
+                            break;
+                        case DEAL_MADE:
+                            statusStr = "Deal Made";
+                            break;
+                        case FAILED:
+                            statusStr = "Failed";
+                            break;
+                        default:
+                            statusStr = "Unknown";
+                            break;
+                    }
 
                     negotiationModel.setValueAt("RM " + String.format("%,.0f", latestOffer), i, 3);
                     negotiationModel.setValueAt(statusStr, i, 4);
@@ -438,11 +448,11 @@ public class BrokerDashboardGui extends JFrame {
         negotiationCountLabel.setText(negotiations.size() + " Total Session" + (negotiations.size() != 1 ? "s" : ""));
     }
 
-    public void show() {
+    public void display() {
         pack();
         setSize(1000, 600);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

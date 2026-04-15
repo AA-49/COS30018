@@ -257,10 +257,10 @@ public class BuyerMatchedCarsGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

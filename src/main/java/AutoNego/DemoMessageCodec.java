@@ -28,7 +28,7 @@ final class DemoMessageCodec {
     }
 
     static String[] decodeRecords(String payload) {
-        if (payload == null || payload.isBlank()) {
+        if (payload == null || payload.trim().isEmpty()) {
             return new String[0];
         }
         return payload.split(RECORD_SEPARATOR);

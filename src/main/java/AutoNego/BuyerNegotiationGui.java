@@ -400,11 +400,11 @@ public class BuyerNegotiationGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         setSize(500, 600);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

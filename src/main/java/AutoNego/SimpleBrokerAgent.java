@@ -5,6 +5,7 @@ import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,14 +23,18 @@ public class SimpleBrokerAgent extends Agent {
     @Override
     protected void setup() {
         dashboard = new BrokerDashboardGui(this);
-        dashboard.show();
+        dashboard.display();
         addBehaviour(new BrokerMessageRouter());
     }
 
     @Override
     protected void takeDown() {
         if (dashboard != null) {
-            dashboard.dispose();
+            SwingUtilities.invokeLater(() -> {
+                if (dashboard != null) {
+                    dashboard.dispose();
+                }
+            });
         }
     }
 
@@ -77,16 +82,14 @@ public class SimpleBrokerAgent extends Agent {
     }
 
     private void handleBuyerSearch(ACLMessage message) {
-        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
+        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 2);
         String brand = request[0];
         String type = request[1];
-        double maxPrice = Double.parseDouble(request[2]);
 
         List<String> matches = new ArrayList<>();
         for (ListingRecord listing : listings.values()) {
             if (listing.brand.equalsIgnoreCase(brand)
-                    && listing.type.equalsIgnoreCase(type)
-                    && listing.price <= maxPrice) {
+                    && listing.type.equalsIgnoreCase(type)) {
                 matches.add(DemoMessageCodec.encodeFields(
                         listing.id,
                         listing.brand,
@@ -100,7 +103,7 @@ public class SimpleBrokerAgent extends Agent {
         ACLMessage reply = message.createReply();
         reply.setPerformative(ACLMessage.INFORM);
         reply.setConversationId("buyer-search-result");
-        reply.setContent(DemoMessageCodec.encodeRecords(matches.toArray(String[]::new)));
+        reply.setContent(DemoMessageCodec.encodeRecords(matches.toArray(new String[0])));
         send(reply);
     }
 
@@ -240,7 +243,20 @@ public class SimpleBrokerAgent extends Agent {
         send(toDealer);
     }
 
-    private record ListingRecord(String id, String dealerName, String brand, String type, double price) {
+    private static final class ListingRecord {
+        private final String id;
+        private final String dealerName;
+        private final String brand;
+        private final String type;
+        private final double price;
+
+        private ListingRecord(String id, String dealerName, String brand, String type, double price) {
+            this.id = id;
+            this.dealerName = dealerName;
+            this.brand = brand;
+            this.type = type;
+            this.price = price;
+        }
     }
 
     private static final class SessionRecord {

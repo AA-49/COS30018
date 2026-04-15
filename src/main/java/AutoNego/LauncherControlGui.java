@@ -46,7 +46,7 @@ public class LauncherControlGui extends JFrame {
             } catch (Exception ex) { ex.printStackTrace(); }
         }));
 
-        setSize(900, 300);
+        setSize(900, 500);
         setLocationRelativeTo(null);
     }
 
