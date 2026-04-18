@@ -67,7 +67,7 @@ public class DealerNegotiationGui extends JFrame {
         this.carBrand    = carBrand;
         this.carType     = carType;
         this.askingPrice = askingPrice;
-        this.currentOffer = askingPrice;
+        this.currentOffer = 0;
         initUI();
     }
 
@@ -169,7 +169,7 @@ public class DealerNegotiationGui extends JFrame {
         currentLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         currentLabel.setForeground(MUTED);
 
-        currentOfferLabel = new JLabel("RM " + String.format("%,.2f", currentOffer));
+        currentOfferLabel = new JLabel("Waiting for buyer's offer...");
         currentOfferLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
         currentOfferLabel.setForeground(ACCENT);
 

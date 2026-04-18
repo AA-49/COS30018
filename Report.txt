@@ -1,0 +1,1 @@
+"We implemented a time-dependent Boulware tactic as described in the lecture material. The offer function is offer(t) = firstOffer + (reserve - firstOffer) * (t/deadline)^(1/e) where e = 0.2 causes the buyer agent to hold near its initial offer until approaching the deadline, maximising pressure on the dealer."

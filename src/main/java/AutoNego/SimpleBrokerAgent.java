@@ -80,13 +80,12 @@ public class SimpleBrokerAgent extends Agent {
         String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
         String brand = request[0];
         String type = request[1];
-        double maxPrice = Double.parseDouble(request[2]);
 
         List<String> matches = new ArrayList<>();
         for (ListingRecord listing : listings.values()) {
             if (listing.brand.equalsIgnoreCase(brand)
                     && listing.type.equalsIgnoreCase(type)
-                    && listing.price <= maxPrice) {
+                    ) {
                 matches.add(DemoMessageCodec.encodeFields(
                         listing.id,
                         listing.brand,
