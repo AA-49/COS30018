@@ -57,6 +57,7 @@ public class BrokerDashboardGui extends JFrame {
         public final String dealerName;
         public final String carBrand;
         public final String carType;
+        public final List<String> messages;
         public NegotiationStatus status;
         public double latestOffer;
         public String lastUpdated;
@@ -71,6 +72,7 @@ public class BrokerDashboardGui extends JFrame {
             this.status      = NegotiationStatus.IN_PROGRESS;
             this.latestOffer = initialOffer;
             this.lastUpdated = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+            this.messages = new ArrayList<>();
         }
     }
 
@@ -81,6 +83,7 @@ public class BrokerDashboardGui extends JFrame {
 
     private DefaultTableModel listingModel;
     private DefaultTableModel negotiationModel;
+    private JTable negotiationTable;
     private JLabel listingCountLabel;
     private JLabel negotiationCountLabel;
     private JLabel activeNegLabel;
@@ -268,15 +271,15 @@ public class BrokerDashboardGui extends JFrame {
 
         panel.add(sectionHeader, BorderLayout.NORTH);
 
-        String[] cols = {"Buyer", "Dealer", "Car", "Latest Offer", "Status", "Updated"};
+        String[] cols = {"Buyer", "Dealer", "Car", "Latest Offer", "Status", "Updated", ""};
         negotiationModel = new DefaultTableModel(cols, 0) {
             public boolean isCellEditable(int r, int c) { return false; }
         };
 
-        JTable table = buildStyledTable(negotiationModel);
+        negotiationTable = buildStyledTable(negotiationModel);
 
         // Custom cell renderer for Status column (index 4)
-        table.getColumnModel().getColumn(4).setCellRenderer((tbl, value, sel, foc, row, col) -> {
+        negotiationTable.getColumnModel().getColumn(4).setCellRenderer((tbl, value, sel, foc, row, col) -> {
             JLabel lbl = new JLabel(value != null ? value.toString() : "");
             lbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             lbl.setOpaque(true);
@@ -296,11 +299,35 @@ public class BrokerDashboardGui extends JFrame {
             return lbl;
         });
 
-        table.getColumnModel().getColumn(3).setPreferredWidth(100);
-        table.getColumnModel().getColumn(4).setPreferredWidth(90);
-        table.getColumnModel().getColumn(5).setPreferredWidth(70);
+        negotiationTable.getColumnModel().getColumn(3).setPreferredWidth(100);
+        negotiationTable.getColumnModel().getColumn(4).setPreferredWidth(90);
+        negotiationTable.getColumnModel().getColumn(5).setPreferredWidth(70);
+        negotiationTable.getColumnModel().getColumn(6).setPreferredWidth(95);
+        negotiationTable.getColumnModel().getColumn(6).setCellRenderer((tbl, value, sel, foc, row, col) -> {
+            JButton button = new JButton("View Nego");
+            button.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            button.setFocusPainted(false);
+            button.setBackground(ACCENT2);
+            button.setForeground(new Color(10, 20, 22));
+            button.setBorder(new EmptyBorder(4, 8, 4, 8));
+            return button;
+        });
+        negotiationTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int viewRow = negotiationTable.rowAtPoint(e.getPoint());
+                int viewCol = negotiationTable.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol != 6) {
+                    return;
+                }
+                int row = negotiationTable.convertRowIndexToModel(viewRow);
+                if (row >= 0 && row < negotiations.size()) {
+                    showNegotiationMessagesDialog(negotiations.get(row));
+                }
+            }
+        });
 
-        JScrollPane scroll = wrapInScroll(table);
+        JScrollPane scroll = wrapInScroll(negotiationTable);
         panel.add(scroll, BorderLayout.CENTER);
 
         return panel;
@@ -393,14 +420,35 @@ public class BrokerDashboardGui extends JFrame {
     public void addNegotiation(NegotiationSession session) {
         SwingUtilities.invokeLater(() -> {
             negotiations.add(session);
+            session.messages.add("[" + session.lastUpdated + "] Negotiation started.");
             negotiationModel.addRow(new Object[]{
                     session.buyerName, session.dealerName,
                     session.carBrand + " " + session.carType,
                     "RM " + String.format("%,.0f", session.latestOffer),
                     "In Progress",
-                    session.lastUpdated
+                    session.lastUpdated,
+                    "View Nego"
             });
             updateStats();
+        });
+    }
+
+    public void addNegotiationMessage(String sessionId, String message) {
+        SwingUtilities.invokeLater(() -> {
+            for (NegotiationSession session : negotiations) {
+                if (session.sessionId.equals(sessionId)) {
+                    String now = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+                    session.messages.add("[" + now + "] " + message);
+                    session.lastUpdated = now;
+                    for (int i = 0; i < negotiations.size(); i++) {
+                        if (negotiations.get(i).sessionId.equals(sessionId)) {
+                            negotiationModel.setValueAt(now, i, 5);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
         });
     }
 
@@ -446,6 +494,49 @@ public class BrokerDashboardGui extends JFrame {
         listingCountLabel.setText(listings.size() + " Listing" + (listings.size() != 1 ? "s" : ""));
         activeNegLabel.setText(active + " Active");
         negotiationCountLabel.setText(negotiations.size() + " Total Session" + (negotiations.size() != 1 ? "s" : ""));
+    }
+
+    private void showNegotiationMessagesDialog(NegotiationSession session) {
+        JTextArea area = new JTextArea();
+        area.setEditable(false);
+        area.setFont(new Font("Consolas", Font.PLAIN, 12));
+        area.setBackground(new Color(20, 30, 32));
+        area.setForeground(TEXT);
+        area.setCaretColor(TEXT);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("Session: ").append(session.sessionId).append('\n')
+                .append("Buyer: ").append(session.buyerName).append('\n')
+                .append("Dealer: ").append(session.dealerName).append('\n')
+                .append("Car: ").append(session.carBrand).append(' ').append(session.carType).append('\n')
+                .append('\n')
+                .append("Negotiation Messages")
+                .append('\n')
+                .append("--------------------------------------------------")
+                .append('\n');
+
+        if (session.messages.isEmpty()) {
+            builder.append("No messages yet.");
+        } else {
+            for (String line : session.messages) {
+                builder.append(line).append('\n');
+            }
+        }
+        area.setText(builder.toString());
+        area.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(area);
+        scrollPane.setPreferredSize(new Dimension(560, 360));
+        scrollPane.setBorder(BorderFactory.createLineBorder(BORDER, 1, true));
+
+        JOptionPane.showMessageDialog(
+                this,
+                scrollPane,
+                "View Negotiation - " + session.sessionId,
+                JOptionPane.INFORMATION_MESSAGE
+        );
     }
 
     public void display() {

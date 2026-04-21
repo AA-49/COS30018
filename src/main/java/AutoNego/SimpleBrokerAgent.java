@@ -185,6 +185,10 @@ public class SimpleBrokerAgent extends Agent {
                 listing.type,
                 listing.price
         ));
+        dashboard.addNegotiationMessage(
+                sessionId,
+                String.format("Session created for %s %s at listing price RM %.2f.", listing.brand, listing.type, listing.price)
+        );
 
         ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
         toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
@@ -229,6 +233,10 @@ public class SimpleBrokerAgent extends Agent {
         if ("COUNTER".equals(action)) {
             session.latestOffer = amount;
             dashboard.updateNegotiationStatus(session.id, BrokerDashboardGui.NegotiationStatus.IN_PROGRESS, amount);
+            dashboard.addNegotiationMessage(
+                    session.id,
+                    String.format("%s countered with RM %.2f.", fromBuyer ? session.buyerName : session.dealerName, amount)
+            );
             ACLMessage forward = new ACLMessage(ACLMessage.INFORM);
             forward.addReceiver(new AID(fromBuyer ? session.dealerName : session.buyerName, AID.ISLOCALNAME));
             forward.setConversationId("negotiation-update");
@@ -245,6 +253,10 @@ public class SimpleBrokerAgent extends Agent {
         if ("ACCEPT".equals(action)) {
             session.latestOffer = amount;
             dashboard.updateNegotiationStatus(session.id, BrokerDashboardGui.NegotiationStatus.DEAL_MADE, amount);
+            dashboard.addNegotiationMessage(
+                    session.id,
+                    String.format("%s accepted at RM %.2f. Deal confirmed.", fromBuyer ? session.buyerName : session.dealerName, amount)
+            );
             listings.remove(session.listingId);
             dashboard.removeListing(session.listingId);
             notifyNegotiationEnd(session, "ACCEPTED", amount, "Deal confirmed.");
@@ -253,6 +265,12 @@ public class SimpleBrokerAgent extends Agent {
 
         if ("REJECT".equals(action) || "CANCEL".equals(action)) {
             dashboard.updateNegotiationStatus(session.id, BrokerDashboardGui.NegotiationStatus.FAILED, session.latestOffer);
+            dashboard.addNegotiationMessage(
+                    session.id,
+                    fromBuyer
+                            ? "Buyer cancelled the negotiation."
+                            : "Dealer ended the negotiation."
+            );
             notifyNegotiationEnd(
                     session,
                     "FAILED",
