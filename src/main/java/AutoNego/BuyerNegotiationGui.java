@@ -65,6 +65,7 @@ public class BuyerNegotiationGui extends JFrame {
     private JScrollPane chatScroll;
     private JLabel currentOfferLabel;
     private JButton acceptButton;
+    private JButton exitButton;
     private JTextField counterField;
     private JButton sendButton;
     private double currentOffer = 0;
@@ -107,14 +108,16 @@ public class BuyerNegotiationGui extends JFrame {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                int choice = JOptionPane.showConfirmDialog(
-                        BuyerNegotiationGui.this,
-                        "Cancel this negotiation?", "Confirm Cancel",
-                        JOptionPane.YES_NO_OPTION);
-                if (choice == JOptionPane.YES_OPTION) {
-                    if (negotiationListener != null) negotiationListener.onCancel();
+                if (exitButton != null && exitButton.isEnabled()) {
                     dispose();
+                    return;
                 }
+                JOptionPane.showMessageDialog(
+                        BuyerNegotiationGui.this,
+                        "You can close this chat after the negotiation ends.",
+                        "Negotiation In Progress",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
             }
         });
 
@@ -213,10 +216,26 @@ public class BuyerNegotiationGui extends JFrame {
         acceptButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         acceptButton.addActionListener(e -> handleAccept());
 
+        exitButton = new JButton("Exit");
+        exitButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        exitButton.setBackground(BORDER);
+        exitButton.setForeground(TEXT);
+        exitButton.setFocusPainted(false);
+        exitButton.setBorder(new EmptyBorder(8, 16, 8, 16));
+        exitButton.setOpaque(true);
+        exitButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        exitButton.setEnabled(false);
+        exitButton.addActionListener(e -> dispose());
+
+        JPanel actionButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actionButtons.setOpaque(false);
+        actionButtons.add(acceptButton);
+        actionButtons.add(exitButton);
+
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.setOpaque(false);
         topRow.add(currentOfferPanel, BorderLayout.WEST);
-        topRow.add(acceptButton, BorderLayout.EAST);
+        topRow.add(actionButtons, BorderLayout.EAST);
 
         // Counter-offer row
         JPanel counterRow = new JPanel(new BorderLayout(8, 0));
@@ -286,6 +305,7 @@ public class BuyerNegotiationGui extends JFrame {
             acceptButton.setEnabled(false);
             sendButton.setEnabled(false);
             counterField.setEnabled(false);
+            exitButton.setEnabled(true);
             if (accepted) {
                 addSystemEntry("✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer));
             } else {
