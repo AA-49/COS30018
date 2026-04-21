@@ -21,7 +21,7 @@ import java.util.List;
  *
  * Usage from BrokerAgent.setup():
  *   BrokerDashboardGui dashboard = new BrokerDashboardGui(this);
- *   dashboard.show();
+ *   dashboard.display();
  *
  * Then call:
  *   dashboard.addListing(...)          – when a DA registers a car

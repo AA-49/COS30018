@@ -16,7 +16,7 @@ public class SimpleDealerAgent extends Agent {
     private final Map<String, String> interestListingIds = new HashMap<>();
     private final Map<String, DealerNegotiationGui> negotiationWindows = new HashMap<>();
     private final List<DealerBuyerScreen.BuyerInterest> interests = new ArrayList<>();
-
+    private final Map<String, List<ACLMessage>> pendingUpdates = new HashMap<>();
     private DealerInputGui inputGui;
     private DealerBuyerScreen buyerScreen;
 
@@ -25,7 +25,7 @@ public class SimpleDealerAgent extends Agent {
         SwingUtilities.invokeLater(() -> {
             inputGui = new DealerInputGui(this);
             inputGui.setOnListingListener(this::submitListingsToBroker);
-            inputGui.display();
+            inputGui.show();
         });
         addBehaviour(new DealerMessageRouter());
     }
@@ -56,7 +56,7 @@ public class SimpleDealerAgent extends Agent {
         ACLMessage message = new ACLMessage(ACLMessage.INFORM);
         message.addReceiver(broker);
         message.setConversationId("dealer-listings");
-        message.setContent(DemoMessageCodec.encodeRecords(records.toArray(new String[0])));
+        message.setContent(DemoMessageCodec.encodeRecords(records.toArray(String[]::new)));
         send(message);
     }
 
@@ -106,7 +106,7 @@ public class SimpleDealerAgent extends Agent {
                         sendInterestDecision(selected, ACLMessage.REJECT_PROPOSAL);
                     }
                 });
-                buyerScreen.display();
+                buyerScreen.show();
             } else {
                 buyerScreen.addInterest(interest);
             }
@@ -114,11 +114,11 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void handleNegotiationStart(ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 5);
-        String sessionId = parts[0];
-        String buyerName = parts[1];
-        String brand = parts[2];
-        String type = parts[3];
+        String[] parts    = DemoMessageCodec.decodeFields(message.getContent(), 5);
+        String sessionId  = parts[0];
+        String buyerName  = parts[1];
+        String brand      = parts[2];
+        String type       = parts[3];
         double askingPrice = Double.parseDouble(parts[4]);
 
         SwingUtilities.invokeLater(() -> {
@@ -128,32 +128,50 @@ public class SimpleDealerAgent extends Agent {
                 public void onAccept(double currentOffer) {
                     sendNegotiationAction(sessionId, "ACCEPT", currentOffer, ACLMessage.ACCEPT_PROPOSAL);
                 }
-
                 @Override
                 public void onCounterOffer(double counterAmount) {
                     sendNegotiationAction(sessionId, "COUNTER", counterAmount, ACLMessage.PROPOSE);
                 }
-
                 @Override
                 public void onReject() {
                     sendNegotiationAction(sessionId, "REJECT", 0, ACLMessage.REJECT_PROPOSAL);
                 }
             });
+
+            // Register the GUI first
             negotiationWindows.put(sessionId, gui);
-            gui.display();
+            gui.show();
+
+            // Flush any updates that arrived before the GUI was ready
+            List<ACLMessage> queued = pendingUpdates.remove(sessionId);
+            if (queued != null) {
+                for (ACLMessage queued_message : queued) {
+                    applyNegotiationUpdate(gui, queued_message);
+                }
+            }
         });
     }
 
     private void handleNegotiationUpdate(ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
-        DealerNegotiationGui gui = negotiationWindows.get(parts[0]);
+        String sessionId = DemoMessageCodec.decodeFields(message.getContent(), 1)[0];
+        DealerNegotiationGui gui = negotiationWindows.get(sessionId);
+
         if (gui == null) {
+            // GUI not ready yet — queue this update for when it opens
+            pendingUpdates.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(message);
             return;
         }
 
-        String event = parts[1];
+        // GUI is ready — apply immediately via EDT
+        SwingUtilities.invokeLater(() -> applyNegotiationUpdate(gui, message));
+    }
+
+    // Extracted so both the flush path and the live path use the same logic
+    private void applyNegotiationUpdate(DealerNegotiationGui gui, ACLMessage message) {
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
+        String event  = parts[1];
         double amount = Double.parseDouble(parts[2]);
-        String note = parts[3];
+        String note   = parts[3];
 
         if ("BUYER_COUNTER".equals(event)) {
             gui.addBuyerOffer(amount, "Buyer counter-offer");
@@ -165,7 +183,6 @@ public class SimpleDealerAgent extends Agent {
             gui.lockNegotiation(false);
         }
     }
-
     private void sendInterestDecision(DealerBuyerScreen.BuyerInterest interest, int performative) {
         String listingId = interestListingIds.get(interestKey(interest));
         if (listingId == null) {

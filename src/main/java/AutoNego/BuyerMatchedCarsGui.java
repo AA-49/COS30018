@@ -80,7 +80,7 @@ public class BuyerMatchedCarsGui extends JFrame {
             public void windowClosing(WindowEvent e) { myAgent.doDelete(); }
         });
 
-        setSize(560, Math.min(100 + listings.size() * 120, 620));
+        setSize(560, Math.min(100 + listings.size() * 120, 720));
         centerOnScreen();
         setResizable(true);
     }

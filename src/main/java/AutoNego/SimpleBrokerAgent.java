@@ -5,7 +5,6 @@ import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 
-import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,11 +29,7 @@ public class SimpleBrokerAgent extends Agent {
     @Override
     protected void takeDown() {
         if (dashboard != null) {
-            SwingUtilities.invokeLater(() -> {
-                if (dashboard != null) {
-                    dashboard.dispose();
-                }
-            });
+            dashboard.dispose();
         }
     }
 
@@ -82,14 +77,15 @@ public class SimpleBrokerAgent extends Agent {
     }
 
     private void handleBuyerSearch(ACLMessage message) {
-        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 2);
+        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
         String brand = request[0];
         String type = request[1];
 
         List<String> matches = new ArrayList<>();
         for (ListingRecord listing : listings.values()) {
             if (listing.brand.equalsIgnoreCase(brand)
-                    && listing.type.equalsIgnoreCase(type)) {
+                    && listing.type.equalsIgnoreCase(type)
+            ) {
                 matches.add(DemoMessageCodec.encodeFields(
                         listing.id,
                         listing.brand,
@@ -103,7 +99,7 @@ public class SimpleBrokerAgent extends Agent {
         ACLMessage reply = message.createReply();
         reply.setPerformative(ACLMessage.INFORM);
         reply.setConversationId("buyer-search-result");
-        reply.setContent(DemoMessageCodec.encodeRecords(matches.toArray(new String[0])));
+        reply.setContent(DemoMessageCodec.encodeRecords(matches.toArray(String[]::new)));
         send(reply);
     }
 
