@@ -392,11 +392,11 @@ public class DealerNegotiationGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         setSize(520, 800);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

@@ -24,11 +24,13 @@ public class DealerInputGui extends JFrame {
         public final String brand;
         public final String type;
         public final double price;
+        public final double minAcceptPrice;
 
-        public CarListing(String brand, String type, double price) {
+        public CarListing(String brand, String type, double price, double minAcceptPrice) {
             this.brand = brand;
             this.type  = type;
             this.price = price;
+            this.minAcceptPrice = minAcceptPrice;
         }
     }
 
@@ -43,6 +45,7 @@ public class DealerInputGui extends JFrame {
     private JTextField brandField;
     private JTextField typeField;
     private JTextField priceField;
+    private JTextField minPriceField;
     private DefaultTableModel tableModel;
     private final List<CarListing> listings = new ArrayList<>();
 
@@ -139,6 +142,7 @@ public class DealerInputGui extends JFrame {
         brandField = createField();
         typeField  = createField();
         priceField = createField();
+        minPriceField = createField();
 
         panel.add(formTitle);
         panel.add(Box.createVerticalStrut(16));
@@ -147,6 +151,8 @@ public class DealerInputGui extends JFrame {
         panel.add(buildFormRow("Car Type", typeField));
         panel.add(Box.createVerticalStrut(12));
         panel.add(buildFormRow("Price (RM)", priceField));
+        panel.add(Box.createVerticalStrut(12));
+        panel.add(buildFormRow("Minimum Accept Price (RM)", minPriceField));
         panel.add(Box.createVerticalStrut(20));
 
         JButton addBtn = new JButton("+ Add to List");
@@ -196,7 +202,7 @@ public class DealerInputGui extends JFrame {
         tableTitle.setForeground(MUTED);
         tableTitle.setBorder(new EmptyBorder(0, 0, 8, 0));
 
-        String[] cols = {"#", "Brand", "Type", "Price (RM)", ""};
+        String[] cols = {"#", "Brand", "Type", "Price (RM)", "Min (RM)", ""};
         tableModel = new DefaultTableModel(cols, 0) {
             public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -221,10 +227,11 @@ public class DealerInputGui extends JFrame {
         // Column widths
         table.getColumnModel().getColumn(0).setPreferredWidth(30);
         table.getColumnModel().getColumn(3).setPreferredWidth(100);
-        table.getColumnModel().getColumn(4).setPreferredWidth(60);
+        table.getColumnModel().getColumn(4).setPreferredWidth(100);
+        table.getColumnModel().getColumn(5).setPreferredWidth(60);
 
         // Delete button in last column
-        table.getColumnModel().getColumn(4).setCellRenderer((tbl, value, selected, focused, row, col) -> {
+        table.getColumnModel().getColumn(5).setCellRenderer((tbl, value, selected, focused, row, col) -> {
             JButton btn = new JButton("✕");
             btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
             btn.setBackground(DANGER);
@@ -238,7 +245,7 @@ public class DealerInputGui extends JFrame {
             public void mouseClicked(MouseEvent e) {
                 int row = table.rowAtPoint(e.getPoint());
                 int col = table.columnAtPoint(e.getPoint());
-                if (col == 4 && row >= 0 && row < listings.size()) {
+                if (col == 5 && row >= 0 && row < listings.size()) {
                     listings.remove(row);
                     tableModel.removeRow(row);
                     renumberTable();
@@ -325,8 +332,9 @@ public class DealerInputGui extends JFrame {
         String brand = brandField.getText().trim();
         String type  = typeField.getText().trim();
         String priceStr = priceField.getText().trim();
+        String minPriceStr = minPriceField.getText().trim();
 
-        if (brand.isEmpty() || type.isEmpty() || priceStr.isEmpty()) {
+        if (brand.isEmpty() || type.isEmpty() || priceStr.isEmpty() || minPriceStr.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Please fill in all fields.", "Incomplete", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -340,9 +348,23 @@ public class DealerInputGui extends JFrame {
             return;
         }
 
-        CarListing listing = new CarListing(brand, type, price);
+        double minAcceptPrice;
+        try {
+            minAcceptPrice = Double.parseDouble(minPriceStr);
+            if (minAcceptPrice <= 0) throw new NumberFormatException();
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Enter a valid minimum acceptable price.", "Invalid", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (minAcceptPrice > price) {
+            JOptionPane.showMessageDialog(this, "Minimum acceptable price must be less than or equal to listing price.", "Invalid Range", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        CarListing listing = new CarListing(brand, type, price, minAcceptPrice);
         listings.add(listing);
-        tableModel.addRow(new Object[]{listings.size(), brand, type, String.format("%,.2f", price), "✕"});
+        tableModel.addRow(new Object[]{listings.size(), brand, type, String.format("%,.2f", price), String.format("%,.2f", minAcceptPrice), "✕"});
         clearForm();
     }
 
@@ -360,6 +382,7 @@ public class DealerInputGui extends JFrame {
         brandField.setText("");
         typeField.setText("");
         priceField.setText("");
+        minPriceField.setText("");
         brandField.requestFocus();
     }
 
@@ -370,11 +393,11 @@ public class DealerInputGui extends JFrame {
     }
 
     /** Programmatically add a listing (e.g. from config file) */
-    public void addListing(String brand, String type, double price) {
+    public void addListing(String brand, String type, double price, double minAcceptPrice) {
         SwingUtilities.invokeLater(() -> {
-            CarListing listing = new CarListing(brand, type, price);
+            CarListing listing = new CarListing(brand, type, price, minAcceptPrice);
             listings.add(listing);
-            tableModel.addRow(new Object[]{listings.size(), brand, type, String.format("%,.2f", price), "✕"});
+            tableModel.addRow(new Object[]{listings.size(), brand, type, String.format("%,.2f", price), String.format("%,.2f", minAcceptPrice), "✕"});
         });
     }
 

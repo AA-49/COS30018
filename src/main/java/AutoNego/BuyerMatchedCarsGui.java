@@ -36,7 +36,7 @@ public class BuyerMatchedCarsGui extends JFrame {
     }
 
     public interface OnActionListener {
-        void onNegotiate(CarListing listing);
+        void onNegotiate(CarListing listing, boolean autoNegotiate);
         void onCancel(CarListing listing);
     }
 
@@ -154,7 +154,7 @@ public class BuyerMatchedCarsGui extends JFrame {
                 BorderFactory.createLineBorder(BORDER, 1, true),
                 new EmptyBorder(14, 16, 14, 16)
         ));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
 
         // Index badge
         JLabel badge = new JLabel(String.valueOf(index));
@@ -190,16 +190,23 @@ public class BuyerMatchedCarsGui extends JFrame {
         card.add(info, BorderLayout.CENTER);
 
         // Action buttons
-        JPanel buttons = new JPanel(new GridLayout(2, 1, 0, 6));
+        JPanel buttons = new JPanel(new GridLayout(3, 1, 0, 6));
         buttons.setOpaque(false);
+
+        JCheckBox autoNegotiateBox = new JCheckBox("Auto-Nego");
+        autoNegotiateBox.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        autoNegotiateBox.setBackground(CARD_BG);
+        autoNegotiateBox.setForeground(MUTED);
+        autoNegotiateBox.setFocusPainted(false);
 
         JButton negotiateBtn = buildActionButton("Negotiate", ACCENT, new Color(10, 15, 30));
         JButton cancelBtn    = buildActionButton("Cancel",    DANGER, Color.WHITE);
 
         negotiateBtn.addActionListener(e -> {
-            if (actionListener != null) actionListener.onNegotiate(listing);
+            if (actionListener != null) actionListener.onNegotiate(listing, autoNegotiateBox.isSelected());
             negotiateBtn.setEnabled(false);
             cancelBtn.setEnabled(false);
+            autoNegotiateBox.setEnabled(false);
             negotiateBtn.setText("Connecting...");
         });
 
@@ -208,9 +215,11 @@ public class BuyerMatchedCarsGui extends JFrame {
             card.setBackground(new Color(40, 28, 35));
             negotiateBtn.setEnabled(false);
             cancelBtn.setEnabled(false);
+            autoNegotiateBox.setEnabled(false);
             cancelBtn.setText("Declined");
         });
 
+        buttons.add(autoNegotiateBox);
         buttons.add(negotiateBtn);
         buttons.add(cancelBtn);
         card.add(buttons, BorderLayout.EAST);

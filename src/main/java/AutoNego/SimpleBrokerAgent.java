@@ -60,11 +60,12 @@ public class SimpleBrokerAgent extends Agent {
     private void handleDealerListings(ACLMessage message) {
         String dealerName = message.getSender().getLocalName();
         for (String record : DemoMessageCodec.decodeRecords(message.getContent())) {
-            String[] parts = DemoMessageCodec.decodeFields(record, 3);
+            String[] parts = DemoMessageCodec.decodeFields(record, 4);
             String listingId = "listing-" + listingSequence.getAndIncrement();
             double price = Double.parseDouble(parts[2]);
+            double minAcceptPrice = Double.parseDouble(parts[3]);
 
-            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price);
+            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price, minAcceptPrice);
             listings.put(listingId, listing);
             dashboard.addListing(new BrokerDashboardGui.DealerListing(
                     listingId,
@@ -77,14 +78,17 @@ public class SimpleBrokerAgent extends Agent {
     }
 
     private void handleBuyerSearch(ACLMessage message) {
-        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
+        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 4);
         String brand = request[0];
         String type = request[1];
+        double buyerFirstOffer = Double.parseDouble(request[2]);
+        double buyerReservePrice = Double.parseDouble(request[3]);
 
         List<String> matches = new ArrayList<>();
         for (ListingRecord listing : listings.values()) {
             if (listing.brand.equalsIgnoreCase(brand)
                     && listing.type.equalsIgnoreCase(type)
+                    && rangesOverlap(buyerFirstOffer, buyerReservePrice, listing.minAcceptPrice, listing.price)
             ) {
                 matches.add(DemoMessageCodec.encodeFields(
                         listing.id,
@@ -104,9 +108,36 @@ public class SimpleBrokerAgent extends Agent {
     }
 
     private void handleNegotiationRequest(ACLMessage message) {
-        ListingRecord listing = listings.get(message.getContent());
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 1);
+        ListingRecord listing = listings.get(parts[0]);
         if (listing == null) {
             return;
+        }
+
+        String buyerName = message.getSender().getLocalName();
+        double buyerFirstOffer = listing.price;
+        if (parts.length >= 3) {
+            buyerFirstOffer = Double.parseDouble(parts[1]);
+            double buyerReservePrice = Double.parseDouble(parts[2]);
+            boolean hasAgreementRange = rangesOverlap(
+                    buyerFirstOffer,
+                    buyerReservePrice,
+                    listing.minAcceptPrice,
+                    listing.price
+            );
+            if (!hasAgreementRange) {
+                ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
+                toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
+                toBuyer.setConversationId("negotiation-update");
+                toBuyer.setContent(DemoMessageCodec.encodeFields(
+                        "none",
+                        "FAILED",
+                        "0",
+                        "No agreement range between buyer and dealer."
+                ));
+                send(toBuyer);
+                return;
+            }
         }
 
         ACLMessage notifyDealer = new ACLMessage(ACLMessage.INFORM);
@@ -114,10 +145,10 @@ public class SimpleBrokerAgent extends Agent {
         notifyDealer.setConversationId("buyer-interest");
         notifyDealer.setContent(DemoMessageCodec.encodeFields(
                 listing.id,
-                message.getSender().getLocalName(),
+                buyerName,
                 listing.brand,
                 listing.type,
-                Double.toString(listing.price)
+                Double.toString(buyerFirstOffer)
         ));
         send(notifyDealer);
     }
@@ -131,43 +162,7 @@ public class SimpleBrokerAgent extends Agent {
 
         String buyerName = parts[1];
         if (message.getPerformative() == ACLMessage.AGREE) {
-            String sessionId = "session-" + sessionSequence.getAndIncrement();
-            SessionRecord session = new SessionRecord(sessionId, listing, buyerName);
-            sessions.put(sessionId, session);
-
-            dashboard.addNegotiation(new BrokerDashboardGui.NegotiationSession(
-                    sessionId,
-                    buyerName,
-                    listing.dealerName,
-                    listing.brand,
-                    listing.type,
-                    listing.price
-            ));
-
-            ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
-            toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
-            toBuyer.setConversationId("negotiation-start");
-            toBuyer.setContent(DemoMessageCodec.encodeFields(
-                    sessionId,
-                    listing.id,
-                    listing.brand,
-                    listing.type,
-                    Double.toString(listing.price),
-                    listing.dealerName
-            ));
-            send(toBuyer);
-
-            ACLMessage toDealer = new ACLMessage(ACLMessage.INFORM);
-            toDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
-            toDealer.setConversationId("negotiation-start");
-            toDealer.setContent(DemoMessageCodec.encodeFields(
-                    sessionId,
-                    buyerName,
-                    listing.brand,
-                    listing.type,
-                    Double.toString(listing.price)
-            ));
-            send(toDealer);
+            createNegotiationSession(listing, buyerName);
         } else {
             ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
             toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
@@ -175,6 +170,48 @@ public class SimpleBrokerAgent extends Agent {
             toBuyer.setContent(DemoMessageCodec.encodeFields("none", "FAILED", "0", "Dealer declined the request."));
             send(toBuyer);
         }
+    }
+
+    private void createNegotiationSession(ListingRecord listing, String buyerName) {
+        String sessionId = "session-" + sessionSequence.getAndIncrement();
+        SessionRecord session = new SessionRecord(sessionId, listing, buyerName);
+        sessions.put(sessionId, session);
+
+        dashboard.addNegotiation(new BrokerDashboardGui.NegotiationSession(
+                sessionId,
+                buyerName,
+                listing.dealerName,
+                listing.brand,
+                listing.type,
+                listing.price
+        ));
+
+        ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
+        toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
+        toBuyer.setConversationId("negotiation-start");
+        toBuyer.setContent(DemoMessageCodec.encodeFields(
+                sessionId,
+                listing.id,
+                listing.brand,
+                listing.type,
+                Double.toString(listing.price),
+                listing.dealerName
+        ));
+        send(toBuyer);
+
+        ACLMessage toDealer = new ACLMessage(ACLMessage.INFORM);
+        toDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
+        toDealer.setConversationId("negotiation-start");
+        toDealer.setContent(DemoMessageCodec.encodeFields(
+                sessionId,
+                listing.id,
+                buyerName,
+                listing.brand,
+                listing.type,
+                Double.toString(listing.price),
+                Double.toString(listing.minAcceptPrice)
+        ));
+        send(toDealer);
     }
 
     private void handleNegotiationAction(ACLMessage message) {
@@ -239,19 +276,29 @@ public class SimpleBrokerAgent extends Agent {
         send(toDealer);
     }
 
+    private boolean rangesOverlap(double buyerLow, double buyerHigh, double dealerLow, double dealerHigh) {
+        double normalizedBuyerLow = Math.min(buyerLow, buyerHigh);
+        double normalizedBuyerHigh = Math.max(buyerLow, buyerHigh);
+        double normalizedDealerLow = Math.min(dealerLow, dealerHigh);
+        double normalizedDealerHigh = Math.max(dealerLow, dealerHigh);
+        return Math.max(normalizedBuyerLow, normalizedDealerLow) <= Math.min(normalizedBuyerHigh, normalizedDealerHigh);
+    }
+
     private static final class ListingRecord {
         private final String id;
         private final String dealerName;
         private final String brand;
         private final String type;
         private final double price;
+        private final double minAcceptPrice;
 
-        private ListingRecord(String id, String dealerName, String brand, String type, double price) {
+        private ListingRecord(String id, String dealerName, String brand, String type, double price, double minAcceptPrice) {
             this.id = id;
             this.dealerName = dealerName;
             this.brand = brand;
             this.type = type;
             this.price = price;
+            this.minAcceptPrice = minAcceptPrice;
         }
     }
 

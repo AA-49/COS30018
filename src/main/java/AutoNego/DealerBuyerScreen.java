@@ -35,7 +35,7 @@ public class DealerBuyerScreen extends JFrame {
     }
 
     public interface OnActionListener {
-        void onNegotiate(BuyerInterest interest);
+        void onNegotiate(BuyerInterest interest, boolean autoNegotiate);
         void onDecline(BuyerInterest interest);
     }
 
@@ -153,7 +153,7 @@ public class DealerBuyerScreen extends JFrame {
                 BorderFactory.createLineBorder(BORDER, 1, true),
                 new EmptyBorder(14, 16, 14, 16)
         ));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
 
         // Buyer avatar / icon
         JLabel avatar = new JLabel("👤");
@@ -187,16 +187,23 @@ public class DealerBuyerScreen extends JFrame {
         card.add(info, BorderLayout.CENTER);
 
         // Action buttons
-        JPanel buttons = new JPanel(new GridLayout(2, 1, 0, 6));
+        JPanel buttons = new JPanel(new GridLayout(3, 1, 0, 6));
         buttons.setOpaque(false);
+
+        JCheckBox autoNegotiateBox = new JCheckBox("Auto-Nego");
+        autoNegotiateBox.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        autoNegotiateBox.setBackground(CARD_BG);
+        autoNegotiateBox.setForeground(MUTED);
+        autoNegotiateBox.setFocusPainted(false);
 
         JButton negotiateBtn = buildBtn("Negotiate", ACCENT, new Color(18, 12, 30));
         JButton declineBtn   = buildBtn("Decline",   DANGER, Color.WHITE);
 
         negotiateBtn.addActionListener(e -> {
-            if (actionListener != null) actionListener.onNegotiate(interest);
+            if (actionListener != null) actionListener.onNegotiate(interest, autoNegotiateBox.isSelected());
             negotiateBtn.setEnabled(false);
             declineBtn.setEnabled(false);
+            autoNegotiateBox.setEnabled(false);
             negotiateBtn.setText("Starting...");
             card.setBackground(new Color(30, 40, 35));
         });
@@ -205,10 +212,12 @@ public class DealerBuyerScreen extends JFrame {
             if (actionListener != null) actionListener.onDecline(interest);
             negotiateBtn.setEnabled(false);
             declineBtn.setEnabled(false);
+            autoNegotiateBox.setEnabled(false);
             declineBtn.setText("Declined");
             card.setBackground(new Color(40, 28, 35));
         });
 
+        buttons.add(autoNegotiateBox);
         buttons.add(negotiateBtn);
         buttons.add(declineBtn);
         card.add(buttons, BorderLayout.EAST);

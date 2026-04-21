@@ -22,12 +22,11 @@ public class BuyerInputGui extends JFrame {
     private JTextField typeField;
     private JTextField priceField;
     private JTextField reservepriceField;
-    private JCheckBox  autoNegotiateBox;
     private JButton confirmButton;
 
     // Callback interface so the agent can react to the confirm action
     public interface OnConfirmListener {
-        void onConfirm(String brand, String type, double maxPrice, double reservePrice, boolean autoNegotiate);
+        void onConfirm(String brand, String type, double maxPrice, double reservePrice);
     }
 
     private OnConfirmListener listener;
@@ -52,7 +51,6 @@ public class BuyerInputGui extends JFrame {
         Color MUTED     = new Color(113, 128, 150);
         Color FIELD_BG  = new Color(30, 36, 54);
         Color BORDER    = new Color(45, 55, 80);
-        Color SUCCESS  = new Color(72, 187, 120);
 
         Font TITLE_FONT  = new Font("Segoe UI", Font.BOLD, 22);
         Font LABEL_FONT  = new Font("Segoe UI", Font.PLAIN, 13);
@@ -115,16 +113,6 @@ public class BuyerInputGui extends JFrame {
         form.add(buildFieldRow("Reserve Price (RM)", "Maximum price you're willing to pay", reservepriceField, LABEL_FONT, MUTED, TEXT));
 
         add(form, BorderLayout.CENTER);
-        // ── Auto-Negotiate checkbox ────────────────────────────────────────
-        autoNegotiateBox = new JCheckBox("Enable Auto-Negotiation");
-        autoNegotiateBox.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        autoNegotiateBox.setForeground(SUCCESS);
-        autoNegotiateBox.setBackground(BG);
-        autoNegotiateBox.setFocusPainted(false);
-        autoNegotiateBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        form.add(autoNegotiateBox);
-        form.add(Box.createVerticalStrut(10));
-
         // ── Footer / Button ───────────────────────────────────────────────
         JPanel footer = new JPanel(new BorderLayout());
         footer.setBackground(PANEL_BG);
@@ -239,13 +227,18 @@ public class BuyerInputGui extends JFrame {
                     "Invalid Reserve Price", JOptionPane.ERROR_MESSAGE);
             return;
         }
+        if (reservePrice < price) {
+            JOptionPane.showMessageDialog(this,
+                    "Reserve price must be greater than or equal to your starting price.",
+                    "Invalid Price Range", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
 
         confirmButton.setEnabled(false);
         confirmButton.setText("Searching...");
 
         if (listener != null) {
-            boolean autoNegotiate = autoNegotiateBox.isSelected();
-            listener.onConfirm(brand, type, price, reservePrice, autoNegotiate);
+            listener.onConfirm(brand, type, price, reservePrice);
         }
     }
 
@@ -257,10 +250,10 @@ public class BuyerInputGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

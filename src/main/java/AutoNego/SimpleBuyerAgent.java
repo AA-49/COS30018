@@ -16,7 +16,7 @@ public class SimpleBuyerAgent extends Agent {
     private final Map<String, String> listingIdsByKey = new HashMap<>();
     private final Map<String, BuyerNegotiationGui> negotiationWindows = new HashMap<>();
     private final Map<String, NegotiationState> negotiationStates = new HashMap<>();
-    private boolean autoNegotiateMode = false; // Tracks if auto-negotiation is enabled
+    private final Map<String, Boolean> autoModeByListingId = new HashMap<>();
     private double myFirstOffer = 0; // Kept private for auto-negotiation logic
 
     private double myReservePrice = 0; // Kept private for auto-negotiation logic
@@ -28,28 +28,22 @@ public class SimpleBuyerAgent extends Agent {
     protected void setup() {
         SwingUtilities.invokeLater(() -> {
             inputGui = new BuyerInputGui(this);
-            inputGui.setOnConfirmListener((brand, type, maxPrice, reservePrice, autoNegotiate) -> {
-                // Store mode and prices on the agent — they survive past the lambda
-                autoNegotiateMode = autoNegotiate;
+            inputGui.setOnConfirmListener((brand, type, maxPrice, reservePrice) -> {
                 myFirstOffer      = maxPrice;
                 myReservePrice    = reservePrice;
-
-                if (autoNegotiate) {
-                    System.out.println("\n[AUTO] " + getLocalName() + " starting auto-negotiation.");
-                    System.out.println("[AUTO] First offer: RM " + String.format("%.2f", maxPrice));
-                    System.out.println("[AUTO] Reserve price: RM " + String.format("%.2f", reservePrice) + " (private)");
-                    System.out.println("[AUTO] Searching for: " + brand + " " + type + " under RM " + maxPrice);
-                }
 
                 ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
                 request.addReceiver(broker);
                 request.setConversationId("buyer-search");
-                // Send first offer as the search price so broker knows what we want to pay
-                double searchPrice = autoNegotiate ? maxPrice : maxPrice;
-                request.setContent(DemoMessageCodec.encodeFields(brand, type, Double.toString(searchPrice)));
+                request.setContent(DemoMessageCodec.encodeFields(
+                        brand,
+                        type,
+                        Double.toString(maxPrice),
+                        Double.toString(reservePrice)
+                ));
                 send(request);
             });
-            inputGui.show();
+            inputGui.display();
         });
 
         addBehaviour(new BuyerMessageRouter());
@@ -116,16 +110,21 @@ public class SimpleBuyerAgent extends Agent {
             matchedCarsGui = new BuyerMatchedCarsGui(this, listings);
             matchedCarsGui.setOnActionListener(new BuyerMatchedCarsGui.OnActionListener() {
                 @Override
-                public void onNegotiate(BuyerMatchedCarsGui.CarListing listing) {
+                public void onNegotiate(BuyerMatchedCarsGui.CarListing listing, boolean autoNegotiate) {
                     String listingId = listingIdsByKey.get(keyOf(listing));
                     if (listingId == null) {
                         return;
                     }
+                    autoModeByListingId.put(listingId, autoNegotiate);
 
                     ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
                     request.addReceiver(broker);
                     request.setConversationId("negotiation-request");
-                    request.setContent(listingId);
+                    request.setContent(DemoMessageCodec.encodeFields(
+                            listingId,
+                            Double.toString(myFirstOffer),
+                            Double.toString(myReservePrice)
+                    ));
                     send(request);
                 }
 
@@ -133,7 +132,7 @@ public class SimpleBuyerAgent extends Agent {
                 public void onCancel(BuyerMatchedCarsGui.CarListing listing) {
                 }
             });
-            matchedCarsGui.show();
+            matchedCarsGui.display();
         });
     }
 
@@ -167,11 +166,13 @@ public class SimpleBuyerAgent extends Agent {
     private void handleNegotiationStart(ACLMessage message) {
         String[] parts     = DemoMessageCodec.decodeFields(message.getContent(), 6);
         String sessionId   = parts[0];
-        // parts[1] is listing.id — not needed here, skip it
+        String listingId   = parts[1];
         String brand       = parts[2];
         String type        = parts[3];
         double askingPrice = Double.parseDouble(parts[4]);
         String dealerName  = parts[5];
+        boolean autoNegotiate = autoModeByListingId.getOrDefault(listingId, false);
+        autoModeByListingId.remove(listingId);
 
         BuyerMatchedCarsGui.CarListing listing = new BuyerMatchedCarsGui.CarListing(
                 brand, type, askingPrice, dealerName
@@ -180,7 +181,7 @@ public class SimpleBuyerAgent extends Agent {
         // e = 1.0 → Linear
         // e = 3.0 → Conceder (gives in fast)
         double e = 1.0;
-        if (autoNegotiateMode) {
+        if (autoNegotiate) {
             // Create negotiation state using the buyer's own stored prices
             NegotiationState state = new NegotiationState(
                     sessionId, myFirstOffer, myReservePrice, 10,e);
@@ -201,10 +202,6 @@ public class SimpleBuyerAgent extends Agent {
 
         } else {
             // Manual mode — show GUI as before
-            NegotiationState state = new NegotiationState(
-                    sessionId, myFirstOffer, myReservePrice, 10, e);
-            negotiationStates.put(sessionId, state);
-
             SwingUtilities.invokeLater(() -> {
                 BuyerNegotiationGui gui = new BuyerNegotiationGui(this, listing);
                 gui.setOnNegotiationListener(new BuyerNegotiationGui.OnNegotiationListener() {
@@ -222,7 +219,7 @@ public class SimpleBuyerAgent extends Agent {
                     }
                 });
                 negotiationWindows.put(sessionId, gui);
-                gui.show();
+                gui.display();
             });
         }
     }
@@ -234,9 +231,8 @@ public class SimpleBuyerAgent extends Agent {
         double amount    = Double.parseDouble(parts[2]);
         String note      = parts[3];
 
-        if (autoNegotiateMode) {
-            NegotiationState state = negotiationStates.get(sessionId);
-            if (state == null) return;
+        NegotiationState state = negotiationStates.get(sessionId);
+        if (state != null) {
 
             if ("DEALER_COUNTER".equals(event)) {
                 System.out.printf("[AUTO] Dealer counter-offer: RM %.2f%n", amount);
