@@ -40,6 +40,7 @@ public class DealerNegotiationGui extends JFrame {
     private JScrollPane chatScroll;
     private JLabel currentOfferLabel;
     private JButton acceptButton;
+    private JButton exitButton;
     private JTextField counterField;
     private JButton sendButton;
     private double currentOffer;
@@ -67,7 +68,7 @@ public class DealerNegotiationGui extends JFrame {
         this.carBrand    = carBrand;
         this.carType     = carType;
         this.askingPrice = askingPrice;
-        this.currentOffer = askingPrice;
+        this.currentOffer = 0;
         initUI();
     }
 
@@ -86,12 +87,16 @@ public class DealerNegotiationGui extends JFrame {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                int c = JOptionPane.showConfirmDialog(DealerNegotiationGui.this,
-                        "Reject this negotiation?", "Confirm", JOptionPane.YES_NO_OPTION);
-                if (c == JOptionPane.YES_OPTION) {
-                    if (negotiationListener != null) negotiationListener.onReject();
+                if (exitButton != null && exitButton.isEnabled()) {
                     dispose();
+                    return;
                 }
+                JOptionPane.showMessageDialog(
+                        DealerNegotiationGui.this,
+                        "You can close this chat after the negotiation ends.",
+                        "Negotiation In Progress",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
             }
         });
 
@@ -169,7 +174,7 @@ public class DealerNegotiationGui extends JFrame {
         currentLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         currentLabel.setForeground(MUTED);
 
-        currentOfferLabel = new JLabel("RM " + String.format("%,.2f", currentOffer));
+        currentOfferLabel = new JLabel("Waiting for buyer's offer...");
         currentOfferLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
         currentOfferLabel.setForeground(ACCENT);
 
@@ -187,10 +192,26 @@ public class DealerNegotiationGui extends JFrame {
         acceptButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         acceptButton.addActionListener(e -> handleAccept());
 
+        exitButton = new JButton("Exit");
+        exitButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        exitButton.setBackground(BORDER);
+        exitButton.setForeground(TEXT);
+        exitButton.setFocusPainted(false);
+        exitButton.setBorder(new EmptyBorder(8, 16, 8, 16));
+        exitButton.setOpaque(true);
+        exitButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        exitButton.setEnabled(false);
+        exitButton.addActionListener(e -> dispose());
+
+        JPanel actionButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actionButtons.setOpaque(false);
+        actionButtons.add(acceptButton);
+        actionButtons.add(exitButton);
+
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.setOpaque(false);
         topRow.add(offerRow,     BorderLayout.WEST);
-        topRow.add(acceptButton, BorderLayout.EAST);
+        topRow.add(actionButtons, BorderLayout.EAST);
 
         // Counter-offer row
         JPanel counterRow = new JPanel(new BorderLayout(8, 0));
@@ -260,6 +281,7 @@ public class DealerNegotiationGui extends JFrame {
             acceptButton.setEnabled(false);
             sendButton.setEnabled(false);
             counterField.setEnabled(false);
+            exitButton.setEnabled(true);
             addSystemEntry(accepted
                     ? "✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer)
                     : "❌ Negotiation ended without agreement.");
@@ -370,11 +392,11 @@ public class DealerNegotiationGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
-        setSize(520, 600);
+        setSize(520, 800);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

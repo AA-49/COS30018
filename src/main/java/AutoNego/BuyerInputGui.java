@@ -21,11 +21,12 @@ public class BuyerInputGui extends JFrame {
     private JTextField brandField;
     private JTextField typeField;
     private JTextField priceField;
+    private JTextField reservepriceField;
     private JButton confirmButton;
 
     // Callback interface so the agent can react to the confirm action
     public interface OnConfirmListener {
-        void onConfirm(String brand, String type, double maxPrice);
+        void onConfirm(String brand, String type, double maxPrice, double reservePrice);
     }
 
     private OnConfirmListener listener;
@@ -101,15 +102,17 @@ public class BuyerInputGui extends JFrame {
         brandField = createField(FIELD_BG, TEXT, FIELD_FONT, BORDER);
         typeField  = createField(FIELD_BG, TEXT, FIELD_FONT, BORDER);
         priceField = createField(FIELD_BG, TEXT, FIELD_FONT, BORDER);
+        reservepriceField = createField(FIELD_BG, TEXT, FIELD_FONT, BORDER);
 
         form.add(buildFieldRow("Car Brand", "e.g. Toyota, BMW, Honda", brandField, LABEL_FONT, MUTED, TEXT));
         form.add(Box.createVerticalStrut(16));
         form.add(buildFieldRow("Car Type", "e.g. Sedan, SUV, Hatchback", typeField, LABEL_FONT, MUTED, TEXT));
         form.add(Box.createVerticalStrut(16));
-        form.add(buildFieldRow("Maximum Price (RM)", "e.g. 85000.00", priceField, LABEL_FONT, MUTED, TEXT));
+        form.add(buildFieldRow("Starting Price (RM)", "Your first offer e.g. 10000", priceField, LABEL_FONT, MUTED, TEXT));
+        form.add(Box.createVerticalStrut(16));
+        form.add(buildFieldRow("Reserve Price (RM)", "Maximum price you're willing to pay", reservepriceField, LABEL_FONT, MUTED, TEXT));
 
         add(form, BorderLayout.CENTER);
-
         // ── Footer / Button ───────────────────────────────────────────────
         JPanel footer = new JPanel(new BorderLayout());
         footer.setBackground(PANEL_BG);
@@ -195,8 +198,9 @@ public class BuyerInputGui extends JFrame {
         String brand = brandField.getText().trim();
         String type  = typeField.getText().trim();
         String priceText = priceField.getText().trim();
+        String reservePriceText = reservepriceField.getText().trim();
 
-        if (brand.isEmpty() || type.isEmpty() || priceText.isEmpty()) {
+        if (brand.isEmpty() || type.isEmpty() || priceText.isEmpty() || reservePriceText.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "Please fill in all fields before searching.",
                     "Incomplete Form", JOptionPane.WARNING_MESSAGE);
@@ -213,12 +217,28 @@ public class BuyerInputGui extends JFrame {
                     "Invalid Price", JOptionPane.ERROR_MESSAGE);
             return;
         }
+        double reservePrice;
+        try {
+            reservePrice = Double.parseDouble(reservePriceText);
+            if (reservePrice < 0) throw new NumberFormatException();
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Please enter a valid reserve price (e.g. 7000.00) ",
+                    "Invalid Reserve Price", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (reservePrice < price) {
+            JOptionPane.showMessageDialog(this,
+                    "Reserve price must be greater than or equal to your starting price.",
+                    "Invalid Price Range", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
 
         confirmButton.setEnabled(false);
         confirmButton.setText("Searching...");
 
         if (listener != null) {
-            listener.onConfirm(brand, type, price);
+            listener.onConfirm(brand, type, price, reservePrice);
         }
     }
 
@@ -230,10 +250,10 @@ public class BuyerInputGui extends JFrame {
         });
     }
 
-    public void show() {
+    public void display() {
         pack();
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {
