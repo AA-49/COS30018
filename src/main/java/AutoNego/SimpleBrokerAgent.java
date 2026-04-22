@@ -1,5 +1,7 @@
 package AutoNego;
 
+import AutoNego.GUI.*;
+
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;

@@ -1,5 +1,8 @@
 package AutoNego;
 
+import AutoNego.GUI.*;
+import AutoNego.strategy.*;
+
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -15,7 +18,8 @@ public class SimpleBuyerAgent extends Agent {
     private final AID broker = new AID("broker", AID.ISLOCALNAME);
     private final Map<String, String> listingIdsByKey = new HashMap<>();
     private final Map<String, BuyerNegotiationGui> negotiationWindows = new HashMap<>();
-    private final Map<String, NegotiationState> negotiationStates = new HashMap<>();
+    private final Map<String, NegotiationContext>  autoCtx      = new HashMap<>();
+    private final Map<String, NegotiationStrategy> autoStrategy = new HashMap<>();
     private final Map<String, Boolean> autoModeByListingId = new HashMap<>();
     private final Map<String, String> sessionToDealer = new HashMap<>();
     
@@ -137,29 +141,7 @@ public class SimpleBuyerAgent extends Agent {
         });
     }
 
-    private static final class NegotiationState {
-        final String sessionId;
-        final double firstOffer;
-        final double reservePrice;
-        final int maxRounds;
-        int roundsElapsed;
-        final double e;
-
-        NegotiationState(String sessionId, double firstOffer, double reservePrice, int maxRounds, double e) {
-            this.sessionId    = sessionId;
-            this.firstOffer   = firstOffer;
-            this.reservePrice = reservePrice;
-            this.maxRounds    = maxRounds;
-            this.roundsElapsed = 0;
-            this.e            = e;
-        }
-
-        double computeNextOffer() {
-            double t = (double) roundsElapsed / maxRounds;
-            double ft = Math.pow(t, 1.0 / e);
-            return firstOffer + (reservePrice - firstOffer) * ft;
-        }
-    }
+    // NegotiationState removed — tactic logic now lives in AutoNego.strategy.*
 
     private void handleNegotiationStart(ACLMessage message) {
         String[] parts     = DemoMessageCodec.decodeFields(message.getContent(), 6);
@@ -179,13 +161,14 @@ public class SimpleBuyerAgent extends Agent {
                 brand, type, askingPrice, dealerName
         );
 
-        double e = 1.0;
         if (autoNegotiate) {
-            NegotiationState state = new NegotiationState(
-                    sessionId, myFirstOffer, myReservePrice, 10,e);
-            negotiationStates.put(sessionId, state);
+            NegotiationStrategy strategy = new LinearStrategy();
+            NegotiationContext ctx = new NegotiationContext(myFirstOffer, myReservePrice, 10, 0);
+            autoStrategy.put(sessionId, strategy);
+            autoCtx.put(sessionId, ctx);
 
             System.out.println("\n[AUTO] ========================================");
+            System.out.println("[AUTO] Strategy: " + strategy.getName());
             System.out.println("[AUTO] Negotiation started — session: " + sessionId);
             System.out.printf("[AUTO] %s %s | Dealer asking: RM %.2f | Dealer: %s%n",
                     brand, type, askingPrice, dealerName);
@@ -193,9 +176,10 @@ public class SimpleBuyerAgent extends Agent {
                     myFirstOffer, myReservePrice);
             System.out.println("[AUTO] ========================================");
 
-            double offer = state.computeNextOffer();
-            System.out.printf("[AUTO] Round 0 — Sending first offer: RM %.2f%n", offer);
-            sendNegotiationAction(sessionId, "COUNTER", offer, ACLMessage.PROPOSE);
+            double firstOffer = strategy.nextOffer(ctx);
+            autoCtx.put(sessionId, ctx.nextRound());
+            System.out.printf("[AUTO] Round 0 — Sending first offer: RM %.2f%n", firstOffer);
+            sendNegotiationAction(sessionId, "COUNTER", firstOffer, ACLMessage.PROPOSE);
 
         } else {
             SwingUtilities.invokeLater(() -> {
@@ -233,26 +217,27 @@ public class SimpleBuyerAgent extends Agent {
         String action = parts[1];
         double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
-        NegotiationState state = negotiationStates.get(sessionId);
-        if (state != null) {
+        NegotiationContext ctx      = autoCtx.get(sessionId);
+        NegotiationStrategy strategy = autoStrategy.get(sessionId);
+        if (ctx != null && strategy != null) {
             if ("COUNTER".equals(action)) {
                 System.out.printf("[AUTO] Dealer counter-offer: RM %.2f%n", amount);
 
-                if (amount <= state.reservePrice) {
-                    System.out.printf("[AUTO] Within reserve (RM %.2f). ACCEPTING.%n", state.reservePrice);
+                if (amount <= ctx.reservePrice) {
+                    System.out.printf("[AUTO] Within reserve (RM %.2f). ACCEPTING.%n", ctx.reservePrice);
                     sendNegotiationAction(sessionId, "ACCEPT", amount, ACLMessage.ACCEPT_PROPOSAL);
-                    negotiationStates.remove(sessionId);
+                    autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
 
-                } else if (state.roundsElapsed >= state.maxRounds) {
+                } else if (ctx.isExhausted()) {
                     System.out.println("[AUTO] Max rounds reached. CANCELLING.");
                     sendNegotiationAction(sessionId, "CANCEL", 0, ACLMessage.REJECT_PROPOSAL);
-                    negotiationStates.remove(sessionId);
+                    autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
 
                 } else {
-                    state.roundsElapsed++;
-                    double nextOffer = state.computeNextOffer();
+                    double nextOffer = strategy.nextOffer(ctx);
+                    autoCtx.put(sessionId, ctx.nextRound());
                     System.out.printf("[AUTO] Round %d/%d — countering: RM %.2f%n",
-                            state.roundsElapsed, state.maxRounds, nextOffer);
+                            ctx.roundsElapsed, ctx.maxRounds, nextOffer);
                     sendNegotiationAction(sessionId, "COUNTER", nextOffer, ACLMessage.PROPOSE);
                 }
 
@@ -260,12 +245,12 @@ public class SimpleBuyerAgent extends Agent {
                 System.out.println("[AUTO] DEAL ACCEPTED.");
                 System.out.printf("[AUTO] Final price: RM %.2f%n", amount);
                 System.out.println("[AUTO] ========================================");
-                negotiationStates.remove(sessionId);
+                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
 
             } else if ("REJECT".equals(action) || "CANCEL".equals(action)) {
                 System.out.println("[AUTO] Negotiation FAILED.");
                 System.out.println("[AUTO] ========================================");
-                negotiationStates.remove(sessionId);
+                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
             }
         } else {
             BuyerNegotiationGui gui = negotiationWindows.get(sessionId);

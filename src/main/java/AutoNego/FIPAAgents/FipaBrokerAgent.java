@@ -1,6 +1,6 @@
 package AutoNego.FIPAAgents;
 
-import AutoNego.BrokerDashboardGui;
+import AutoNego.GUI.BrokerDashboardGui;
 import AutoNego.DemoMessageCodec;
 import jade.core.AID;
 import jade.core.Agent;
@@ -13,10 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * FIPA version of Broker Agent.
- * Preserves same matchmaker logic but communicates with FipaAgents.
- */
 public class FipaBrokerAgent extends Agent {
     private final AtomicInteger listingSequence = new AtomicInteger(1);
     private final AtomicInteger sessionSequence = new AtomicInteger(1);
@@ -27,12 +23,16 @@ public class FipaBrokerAgent extends Agent {
 
     @Override
     protected void setup() {
+        // create UI
         dashboard = new BrokerDashboardGui(this);
-        dashboard.show();
+        dashboard.display();
+
+        // create behavior
         addBehaviour(new BrokerMessageRouter());
         System.out.println("FIPA Broker Agent " + getLocalName() + " is ready.");
     }
 
+    // get rid of UI when agent is killed
     @Override
     protected void takeDown() {
         if (dashboard != null) {
@@ -40,6 +40,7 @@ public class FipaBrokerAgent extends Agent {
         }
     }
 
+    // behavior of broker agent
     private final class BrokerMessageRouter extends CyclicBehaviour {
         @Override
         public void action() {
@@ -64,25 +65,27 @@ public class FipaBrokerAgent extends Agent {
         }
     }
 
+    // what to do when dealer send listing
     private void handleDealerListings(ACLMessage message) {
         String dealerName = message.getSender().getLocalName();
         for (String record : DemoMessageCodec.decodeRecords(message.getContent())) {
-            String[] parts = DemoMessageCodec.decodeFields(record, 3);
+            String[] parts = DemoMessageCodec.decodeFields(record, 4);
             String listingId = "listing-" + listingSequence.getAndIncrement();
             double price = Double.parseDouble(parts[2]);
+            double minAcceptPrice = Double.parseDouble(parts[3]);
 
-            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price);
+            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price, minAcceptPrice);
             listings.put(listingId, listing);
             dashboard.addListing(new BrokerDashboardGui.DealerListing(
                     listingId,
                     dealerName,
                     listing.brand,
                     listing.type,
-                    listing.price
-            ));
+                    listing.price));
         }
     }
 
+    // what to do when buyer search for car
     private void handleBuyerSearch(ACLMessage message) {
         String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
         String brand = request[0];
@@ -99,8 +102,7 @@ public class FipaBrokerAgent extends Agent {
                         listing.brand,
                         listing.type,
                         Double.toString(listing.price),
-                        listing.dealerName
-                ));
+                        listing.dealerName));
             }
         }
 
@@ -111,9 +113,11 @@ public class FipaBrokerAgent extends Agent {
         send(reply);
     }
 
+    // what to do when buyer want to negotiate
     private void handleNegotiationRequest(ACLMessage message) {
         ListingRecord listing = listings.get(message.getContent());
-        if (listing == null) return;
+        if (listing == null)
+            return;
 
         ACLMessage notifyDealer = new ACLMessage(ACLMessage.INFORM);
         notifyDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
@@ -123,15 +127,16 @@ public class FipaBrokerAgent extends Agent {
                 message.getSender().getLocalName(),
                 listing.brand,
                 listing.type,
-                Double.toString(listing.price)
-        ));
+                Double.toString(listing.price)));
         send(notifyDealer);
     }
 
+    // what to do when dealer respond to negotiation request
     private void handleDealerInterestResponse(ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 2);
         ListingRecord listing = listings.get(parts[0]);
-        if (listing == null) return;
+        if (listing == null)
+            return;
 
         String buyerName = parts[1];
         if (message.getPerformative() == ACLMessage.AGREE) {
@@ -143,18 +148,20 @@ public class FipaBrokerAgent extends Agent {
             toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
             toBuyer.setConversationId("negotiation-start");
             toBuyer.setContent(DemoMessageCodec.encodeFields(
-                    sessionId, listing.id, listing.brand, listing.type, Double.toString(listing.price), listing.dealerName
-            ));
+                    sessionId, listing.id, listing.brand, listing.type, Double.toString(listing.price),
+                    listing.dealerName));
             send(toBuyer);
 
             ACLMessage toDealer = new ACLMessage(ACLMessage.INFORM);
             toDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
             toDealer.setConversationId("negotiation-start");
             toDealer.setContent(DemoMessageCodec.encodeFields(
-                    sessionId, buyerName, listing.brand, listing.type, Double.toString(listing.price), listing.id
-            ));
+                    sessionId, buyerName, listing.brand, listing.type,
+                    Double.toString(listing.price), listing.id,
+                    Double.toString(listing.minAcceptPrice)));
             send(toDealer);
-            System.out.println("Broker: Started negotiation session " + sessionId + " between " + buyerName + " and " + listing.dealerName);
+            System.out.println("Broker: Started negotiation session " + sessionId + " between " + buyerName + " and "
+                    + listing.dealerName);
         } else {
             ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
             toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
@@ -165,6 +172,7 @@ public class FipaBrokerAgent extends Agent {
         }
     }
 
+    // what to do when deal is completed
     private void handleDealCompleted(ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
         String listingId = parts[0];
@@ -189,5 +197,7 @@ public class FipaBrokerAgent extends Agent {
         System.out.println("Broker: Deal completed. Total commissions: " + totalCommissions);
     }
 
-    private record ListingRecord(String id, String dealerName, String brand, String type, double price) {}
+    private record ListingRecord(String id, String dealerName, String brand, String type, double price,
+            double minAcceptPrice) {
+    }
 }

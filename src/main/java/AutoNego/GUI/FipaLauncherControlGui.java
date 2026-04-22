@@ -1,8 +1,13 @@
-package AutoNego.FIPAAgents;
+package AutoNego.GUI;
 
 import jade.wrapper.ContainerController;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+
+import AutoNego.FIPAAgents.FipaBrokerAgent;
+import AutoNego.FIPAAgents.FipaBuyerAgent;
+import AutoNego.FIPAAgents.FipaDealerAgent;
+
 import java.awt.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -25,28 +30,34 @@ public class FipaLauncherControlGui extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         getContentPane().setBackground(BG);
         setLayout(new GridLayout(1, 3, 20, 0));
-        ((JPanel)getContentPane()).setBorder(new EmptyBorder(40, 40, 40, 40));
+        ((JPanel) getContentPane()).setBorder(new EmptyBorder(40, 40, 40, 40));
 
         add(createModule("FIPA Broker", "Matchmaker & Ledger", "Start Broker", e -> {
             try {
                 container.createNewAgent("broker", FipaBrokerAgent.class.getName(), null).start();
-                ((JButton)e.getSource()).setEnabled(false);
-                ((JButton)e.getSource()).setText("Broker Online");
-            } catch (Exception ex) { ex.printStackTrace(); }
+                ((JButton) e.getSource()).setEnabled(false);
+                ((JButton) e.getSource()).setText("Broker Online");
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
         }));
 
         add(createModule("FIPA Dealer (DA)", "Initiator (Sends CFP)", "Add FIPA Dealer", e -> {
             try {
                 String name = "fipa_dealer_" + dealerCount.getAndIncrement();
                 container.createNewAgent(name, FipaDealerAgent.class.getName(), null).start();
-            } catch (Exception ex) { ex.printStackTrace(); }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
         }));
 
         add(createModule("FIPA Buyer (BA)", "Responder (Proposes Price)", "Add FIPA Buyer", e -> {
             try {
                 String name = "fipa_buyer_" + buyerCount.getAndIncrement();
                 container.createNewAgent(name, FipaBuyerAgent.class.getName(), null).start();
-            } catch (Exception ex) { ex.printStackTrace(); }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
         }));
 
         setSize(900, 300);
@@ -59,8 +70,7 @@ public class FipaLauncherControlGui extends JFrame {
         p.setBackground(PANEL_BG);
         p.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(45, 55, 80), 1),
-                new EmptyBorder(20, 20, 20, 20)
-        ));
+                new EmptyBorder(20, 20, 20, 20)));
 
         JLabel t = new JLabel(title);
         t.setForeground(ACCENT);
@@ -74,8 +84,10 @@ public class FipaLauncherControlGui extends JFrame {
         btn.setAlignmentX(Component.CENTER_ALIGNMENT);
         btn.addActionListener(action);
 
-        p.add(t); p.add(Box.createVerticalStrut(10));
-        p.add(d); p.add(Box.createVerticalGlue());
+        p.add(t);
+        p.add(Box.createVerticalStrut(10));
+        p.add(d);
+        p.add(Box.createVerticalGlue());
         p.add(btn);
         return p;
     }

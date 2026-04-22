@@ -1,10 +1,13 @@
-package AutoNego;
+package AutoNego.GUI;
+
+import AutoNego.*;
 
 import jade.wrapper.ContainerController;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import AutoNego.*;
 
 public class LauncherControlGui extends JFrame {
     private final ContainerController container;

@@ -1,4 +1,4 @@
-package AutoNego;
+package AutoNego.GUI;
 
 import jade.core.Agent;
 import javax.swing.*;
@@ -388,11 +388,11 @@ public class BrokerDashboardGui extends JFrame {
         listingCountLabel.setText(listings.size() + " Listing" + (listings.size() != 1 ? "s" : ""));
     }
 
-    public void show() {
+    public void display() {
         pack();
         setSize(1000, 600);
         centerOnScreen();
-        super.show();
+        setVisible(true);
     }
 
     private void centerOnScreen() {

@@ -1,4 +1,4 @@
-package AutoNego;
+package AutoNego.GUI;
 
 import jade.core.Agent;
 import javax.swing.*;
@@ -7,57 +7,36 @@ import java.awt.*;
 import java.awt.event.*;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * GUI Screen 3 (Buyer): Negotiation Screen
- * Chat-style negotiation view showing offer history, current offer,
- * and controls to accept or counter-offer.
+ * GUI Screen 6 (Dealer): Negotiation Screen
+ * Chat-style offer history, current offer display, accept and counter-offer controls.
+ * Mirrors BuyerNegotiationGui but from the dealer's perspective.
  *
- * Usage from BuyerAgent when a negotiation session begins:
- *   BuyerNegotiationGui gui = new BuyerNegotiationGui(agent, listing);
- *   gui.setOnNegotiationListener(new BuyerNegotiationGui.OnNegotiationListener() { ... });
+ * Usage from DealerAgent when negotiation with a buyer begins:
+ *   DealerNegotiationGui gui = new DealerNegotiationGui(agent, buyerName, carBrand, carType, askingPrice);
+ *   gui.setOnNegotiationListener(new DealerNegotiationGui.OnNegotiationListener() { ... });
  *   gui.show();
- *
- * Then call gui.addOffer(...) as messages arrive from the Dealer Agent via the Broker.
+ *   // Then call gui.addBuyerOffer(...) when buyer's ACL messages arrive.
  */
-public class BuyerNegotiationGui extends JFrame {
+public class DealerNegotiationGui extends JFrame {
 
-    // ── Data model ────────────────────────────────────────────────────────
-    public static class OfferEntry {
-        public enum Side { BUYER, DEALER, SYSTEM }
-        public final Side   side;
-        public final double amount;
-        public final String label;   // e.g. "Counter-offer", "Initial offer"
-        public final String time;
-
-        public OfferEntry(Side side, double amount, String label) {
-            this.side   = side;
-            this.amount = amount;
-            this.label  = label;
-            this.time   = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-        }
-
-        /** For SYSTEM messages (no price) */
-        public OfferEntry(String systemMessage) {
-            this.side   = Side.SYSTEM;
-            this.amount = 0;
-            this.label  = systemMessage;
-            this.time   = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-        }
-    }
-
+    /**
+     * Interface to pass user actions (Accept, Counter, Reject) from the GUI 
+     * back to the Agent.
+     */
     public interface OnNegotiationListener {
         void onAccept(double currentOffer);
         void onCounterOffer(double counterAmount);
-        void onCancel();
+        void onReject();
     }
 
     // ── Fields ────────────────────────────────────────────────────────────
-    private final Agent myAgent;
-    private final BuyerMatchedCarsGui.CarListing listing;
-    private final List<OfferEntry> offerHistory = new ArrayList<>();
+    private final Agent  myAgent;
+    private final String buyerName;
+    private final String carBrand;
+    private final String carType;
+    private final double askingPrice;
 
     private OnNegotiationListener negotiationListener;
 
@@ -68,28 +47,32 @@ public class BuyerNegotiationGui extends JFrame {
     private JButton exitButton;
     private JTextField counterField;
     private JButton sendButton;
-    private double currentOffer = 0;
+    private double currentOffer;
 
-    // ── Palette ──────────────────────────────────────────────────────────
-    private static final Color BG        = new Color(15, 17, 26);
-    private static final Color PANEL_BG  = new Color(22, 26, 40);
-    private static final Color CARD_BG   = new Color(28, 34, 52);
-    private static final Color ACCENT    = new Color(99, 179, 237);
-    private static final Color ACCENT2   = new Color(236, 201, 75);
-    private static final Color DANGER    = new Color(245, 101, 101);
-    private static final Color SUCCESS   = new Color(72, 187, 120);
-    private static final Color DEALER_BUBBLE = new Color(35, 45, 70);
-    private static final Color BUYER_BUBBLE  = new Color(30, 60, 50);
-    private static final Color TEXT      = new Color(226, 232, 240);
-    private static final Color MUTED     = new Color(113, 128, 150);
-    private static final Color BORDER    = new Color(45, 55, 80);
-    private static final Color FIELD_BG  = new Color(30, 36, 54);
+    // ── Palette (dealer theme: warm amber/gold) ───────────────────────────
+    private static final Color BG           = new Color(18, 14, 10);
+    private static final Color PANEL_BG     = new Color(26, 20, 14);
+    private static final Color CARD_BG      = new Color(34, 26, 18);
+    private static final Color ACCENT       = new Color(251, 191, 36);  // gold
+    private static final Color ACCENT2      = new Color(249, 115, 22);  // orange
+    private static final Color SUCCESS      = new Color(72, 187, 120);
+    private static final Color DANGER       = new Color(245, 101, 101);
+    private static final Color DEALER_BUBBLE = new Color(50, 38, 18);
+    private static final Color BUYER_BUBBLE  = new Color(22, 36, 50);
+    private static final Color TEXT         = new Color(255, 247, 230);
+    private static final Color MUTED        = new Color(160, 140, 100);
+    private static final Color BORDER       = new Color(70, 52, 30);
+    private static final Color FIELD_BG     = new Color(38, 30, 18);
 
-    public BuyerNegotiationGui(Agent agent, BuyerMatchedCarsGui.CarListing listing) {
-        super("Buyer — Negotiation: " + listing.brand + " " + listing.type);
-        this.myAgent = agent;
-        this.listing = listing;
-        this.currentOffer = listing.price;  // start with dealer's asking price
+    public DealerNegotiationGui(Agent agent, String buyerName,
+                                String carBrand, String carType, double askingPrice) {
+        super("Dealer — Negotiation: " + carBrand + " " + carType + " ↔ " + buyerName);
+        this.myAgent     = agent;
+        this.buyerName   = buyerName;
+        this.carBrand    = carBrand;
+        this.carType     = carType;
+        this.askingPrice = askingPrice;
+        this.currentOffer = 0;
         initUI();
     }
 
@@ -113,7 +96,7 @@ public class BuyerNegotiationGui extends JFrame {
                     return;
                 }
                 JOptionPane.showMessageDialog(
-                        BuyerNegotiationGui.this,
+                        DealerNegotiationGui.this,
                         "You can close this chat after the negotiation ends.",
                         "Negotiation In Progress",
                         JOptionPane.INFORMATION_MESSAGE
@@ -121,7 +104,7 @@ public class BuyerNegotiationGui extends JFrame {
             }
         });
 
-        setSize(500, 600);
+        setSize(520, 600);
         centerOnScreen();
         setResizable(true);
     }
@@ -134,33 +117,31 @@ public class BuyerNegotiationGui extends JFrame {
                 new EmptyBorder(14, 20, 14, 20)
         ));
 
-        // Car info
-        JPanel carInfo = new JPanel();
-        carInfo.setLayout(new BoxLayout(carInfo, BoxLayout.Y_AXIS));
-        carInfo.setOpaque(false);
+        JPanel info = new JPanel();
+        info.setLayout(new BoxLayout(info, BoxLayout.Y_AXIS));
+        info.setOpaque(false);
 
-        JLabel carLabel = new JLabel(listing.brand + " " + listing.type);
+        JLabel carLabel = new JLabel(carBrand + " " + carType);
         carLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
         carLabel.setForeground(TEXT);
 
-        JLabel dealerLabel = new JLabel("Negotiating with: " + listing.dealerName);
-        dealerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        dealerLabel.setForeground(MUTED);
+        JLabel buyerLabel = new JLabel("Buyer: " + buyerName);
+        buyerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        buyerLabel.setForeground(MUTED);
 
-        carInfo.add(carLabel);
-        carInfo.add(Box.createVerticalStrut(3));
-        carInfo.add(dealerLabel);
-        header.add(carInfo, BorderLayout.CENTER);
+        info.add(carLabel);
+        info.add(Box.createVerticalStrut(3));
+        info.add(buyerLabel);
+        header.add(info, BorderLayout.CENTER);
 
-        // Asking price tag
-        JLabel askingPrice = new JLabel("Listed: RM " + String.format("%,.0f", listing.price));
-        askingPrice.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        askingPrice.setForeground(ACCENT2);
-        askingPrice.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(ACCENT2, 1, true),
+        JLabel askingTag = new JLabel("Your Ask: RM " + String.format("%,.0f", askingPrice));
+        askingTag.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        askingTag.setForeground(ACCENT);
+        askingTag.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(ACCENT, 1, true),
                 new EmptyBorder(4, 10, 4, 10)
         ));
-        header.add(askingPrice, BorderLayout.EAST);
+        header.add(askingTag, BorderLayout.EAST);
 
         return header;
     }
@@ -171,8 +152,7 @@ public class BuyerNegotiationGui extends JFrame {
         chatPanel.setBackground(BG);
         chatPanel.setBorder(new EmptyBorder(12, 16, 12, 16));
 
-        // Initial system message
-        addSystemEntry("Negotiation started. Dealer's listed price: RM " + String.format("%,.2f", listing.price));
+        addSystemEntry("Negotiation started. Your asking price: RM " + String.format("%,.2f", askingPrice));
 
         chatScroll = new JScrollPane(chatPanel);
         chatScroll.setBackground(BG);
@@ -190,20 +170,20 @@ public class BuyerNegotiationGui extends JFrame {
                 new EmptyBorder(12, 16, 12, 16)
         ));
 
-        // Current offer display
-        JPanel currentOfferPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        currentOfferPanel.setOpaque(false);
+        // Current offer row
+        JPanel offerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        offerRow.setOpaque(false);
 
-        JLabel currentLabel = new JLabel("Current Offer: ");
+        JLabel currentLabel = new JLabel("Buyer's Offer: ");
         currentLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         currentLabel.setForeground(MUTED);
 
-        currentOfferLabel = new JLabel("RM " + String.format("%,.2f", currentOffer));
+        currentOfferLabel = new JLabel("Waiting for buyer's offer...");
         currentOfferLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
         currentOfferLabel.setForeground(ACCENT);
 
-        currentOfferPanel.add(currentLabel);
-        currentOfferPanel.add(currentOfferLabel);
+        offerRow.add(currentLabel);
+        offerRow.add(currentOfferLabel);
 
         // Accept button
         acceptButton = new JButton("✓  Accept Offer");
@@ -234,7 +214,7 @@ public class BuyerNegotiationGui extends JFrame {
 
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.setOpaque(false);
-        topRow.add(currentOfferPanel, BorderLayout.WEST);
+        topRow.add(offerRow,     BorderLayout.WEST);
         topRow.add(actionButtons, BorderLayout.EAST);
 
         // Counter-offer row
@@ -242,10 +222,10 @@ public class BuyerNegotiationGui extends JFrame {
         counterRow.setOpaque(false);
         counterRow.setBorder(new EmptyBorder(8, 0, 0, 0));
 
-        JLabel counterLabel = new JLabel("Make counter-offer (RM):");
+        JLabel counterLabel = new JLabel("Counter-offer (RM):");
         counterLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         counterLabel.setForeground(MUTED);
-        counterLabel.setPreferredSize(new Dimension(170, 30));
+        counterLabel.setPreferredSize(new Dimension(150, 30));
 
         counterField = new JTextField();
         counterField.setBackground(FIELD_BG);
@@ -260,17 +240,17 @@ public class BuyerNegotiationGui extends JFrame {
         sendButton = new JButton("Send");
         sendButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
         sendButton.setBackground(ACCENT);
-        sendButton.setForeground(new Color(10, 15, 30));
+        sendButton.setForeground(new Color(18, 14, 10));
         sendButton.setFocusPainted(false);
         sendButton.setBorder(new EmptyBorder(8, 16, 8, 16));
         sendButton.setOpaque(true);
         sendButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         sendButton.addActionListener(e -> handleCounterOffer());
-        counterField.addActionListener(e -> handleCounterOffer()); // Enter key
+        counterField.addActionListener(e -> handleCounterOffer());
 
-        counterRow.add(counterLabel,  BorderLayout.WEST);
-        counterRow.add(counterField,  BorderLayout.CENTER);
-        counterRow.add(sendButton,    BorderLayout.EAST);
+        counterRow.add(counterLabel, BorderLayout.WEST);
+        counterRow.add(counterField, BorderLayout.CENTER);
+        counterRow.add(sendButton,   BorderLayout.EAST);
 
         wrapper.add(topRow,    BorderLayout.NORTH);
         wrapper.add(counterRow, BorderLayout.SOUTH);
@@ -281,41 +261,39 @@ public class BuyerNegotiationGui extends JFrame {
     // ── Public API called by the agent ────────────────────────────────────
 
     /** 
-     * Called when a dealer sends a new offer to this buyer.
-     * This method re-enables the UI so the buyer can respond.
+     * Called when buyer sends a new offer (from JADE message processing).
+     * This method re-enables the UI so the dealer can now respond.
      */
-    public void addDealerOffer(double amount, String label) {
+    public void addBuyerOffer(double amount, String label) {
         SwingUtilities.invokeLater(() -> {
             this.currentOffer = amount;
             currentOfferLabel.setText("RM " + String.format("%,.2f", amount));
-            addBubble(new OfferEntry(OfferEntry.Side.DEALER, amount, label));
-            // Critical Fix: Unlock the UI now that it's the Buyer's turn
+            addBubble(amount, label, false);
+            // Critical Fix: Unlock the UI now that it's the Dealer's turn
             setWaitingState(false); 
         });
     }
 
-    /** Called when buyer successfully sends a counter (reflected in chat) */
-    public void addBuyerOffer(double amount, String label) {
-        SwingUtilities.invokeLater(() -> addBubble(new OfferEntry(OfferEntry.Side.BUYER, amount, label)));
+    /** Reflected in chat when dealer sends a counter */
+    public void addDealerOffer(double amount, String label) {
+        SwingUtilities.invokeLater(() -> addBubble(amount, label, true));
     }
 
-    /** For status messages like "Dealer accepted", "Negotiation ended" */
+    /** System/status messages */
     public void addSystemMessage(String message) {
         SwingUtilities.invokeLater(() -> addSystemEntry(message));
     }
 
-    /** Lock the UI once negotiation concludes */
+    /** Lock UI on negotiation end */
     public void lockNegotiation(boolean accepted) {
         SwingUtilities.invokeLater(() -> {
             acceptButton.setEnabled(false);
             sendButton.setEnabled(false);
             counterField.setEnabled(false);
             exitButton.setEnabled(true);
-            if (accepted) {
-                addSystemEntry("✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer));
-            } else {
-                addSystemEntry("❌ Negotiation ended without agreement.");
-            }
+            addSystemEntry(accepted
+                    ? "✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer)
+                    : "❌ Negotiation ended without agreement.");
         });
     }
 
@@ -341,7 +319,7 @@ public class BuyerNegotiationGui extends JFrame {
 
     private void handleAccept() {
         int choice = JOptionPane.showConfirmDialog(this,
-                "Accept offer at RM " + String.format("%,.2f", currentOffer) + "?",
+                "Accept buyer's offer at RM " + String.format("%,.2f", currentOffer) + "?",
                 "Confirm Accept", JOptionPane.YES_NO_OPTION);
         if (choice == JOptionPane.YES_OPTION) {
             if (negotiationListener != null) negotiationListener.onAccept(currentOffer);
@@ -366,48 +344,46 @@ public class BuyerNegotiationGui extends JFrame {
         if (negotiationListener != null) negotiationListener.onCounterOffer(counter);
     }
 
-    private void addBubble(OfferEntry entry) {
-        boolean isDealer = entry.side == OfferEntry.Side.DEALER;
-
-        JPanel bubbleRow = new JPanel(new FlowLayout(
-                isDealer ? FlowLayout.LEFT : FlowLayout.RIGHT, 0, 0));
-        bubbleRow.setOpaque(false);
-        bubbleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+    private void addBubble(double amount, String label, boolean isDealer) {
+        JPanel row = new JPanel(new FlowLayout(isDealer ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         JPanel bubble = new JPanel();
         bubble.setLayout(new BoxLayout(bubble, BoxLayout.Y_AXIS));
         bubble.setBackground(isDealer ? DEALER_BUBBLE : BUYER_BUBBLE);
         bubble.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(isDealer ? ACCENT : SUCCESS, 1, true),
+                BorderFactory.createLineBorder(isDealer ? ACCENT : new Color(99, 179, 237), 1, true),
                 new EmptyBorder(8, 14, 8, 14)
         ));
 
-        JLabel senderLabel = new JLabel(isDealer ? "🏢 " + listing.dealerName : "👤 You");
-        senderLabel.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        senderLabel.setForeground(isDealer ? ACCENT : SUCCESS);
+        JLabel senderLbl = new JLabel(isDealer ? "🏢 You (Dealer)" : "👤 " + buyerName);
+        senderLbl.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        senderLbl.setForeground(isDealer ? ACCENT : new Color(99, 179, 237));
 
-        JLabel typeLabel = new JLabel(entry.label);
-        typeLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-        typeLabel.setForeground(MUTED);
+        JLabel typeLbl = new JLabel(label);
+        typeLbl.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        typeLbl.setForeground(MUTED);
 
-        JLabel priceLabel = new JLabel("RM " + String.format("%,.2f", entry.amount));
-        priceLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        priceLabel.setForeground(TEXT);
+        JLabel priceLbl = new JLabel("RM " + String.format("%,.2f", amount));
+        priceLbl.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        priceLbl.setForeground(TEXT);
 
-        JLabel timeLabel = new JLabel(entry.time);
-        timeLabel.setFont(new Font("Segoe UI", Font.PLAIN, 9));
-        timeLabel.setForeground(MUTED);
+        String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+        JLabel timeLbl = new JLabel(time);
+        timeLbl.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+        timeLbl.setForeground(MUTED);
 
-        bubble.add(senderLabel);
+        bubble.add(senderLbl);
         bubble.add(Box.createVerticalStrut(2));
-        bubble.add(typeLabel);
+        bubble.add(typeLbl);
         bubble.add(Box.createVerticalStrut(4));
-        bubble.add(priceLabel);
+        bubble.add(priceLbl);
         bubble.add(Box.createVerticalStrut(4));
-        bubble.add(timeLabel);
+        bubble.add(timeLbl);
 
-        bubbleRow.add(bubble);
-        chatPanel.add(bubbleRow);
+        row.add(bubble);
+        chatPanel.add(row);
         chatPanel.add(Box.createVerticalStrut(10));
         chatPanel.revalidate();
         scrollToBottom();
@@ -446,7 +422,7 @@ public class BuyerNegotiationGui extends JFrame {
 
     public void display() {
         pack();
-        setSize(500, 600);
+        setSize(520, 800);
         centerOnScreen();
         setVisible(true);
     }

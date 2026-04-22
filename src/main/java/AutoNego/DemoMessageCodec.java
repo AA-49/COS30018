@@ -9,6 +9,7 @@ public final class DemoMessageCodec {
     private DemoMessageCodec() {
     }
 
+    // would it be better to chagne this to JSON?
     public static String encodeFields(String... values) {
         return String.join(FIELD_SEPARATOR, Arrays.stream(values)
                 .map(value -> value == null ? "" : value.replace(FIELD_SEPARATOR, " ").replace(RECORD_SEPARATOR, " "))

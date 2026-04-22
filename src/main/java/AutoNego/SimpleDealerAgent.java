@@ -1,5 +1,8 @@
 package AutoNego;
 
+import AutoNego.GUI.*;
+import AutoNego.strategy.*;
+
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -16,7 +19,8 @@ public class SimpleDealerAgent extends Agent {
     private final Map<String, String> interestListingIds = new HashMap<>();
     private final Map<String, Boolean> autoModeByListingId = new HashMap<>();
     private final Map<String, DealerNegotiationGui> negotiationWindows = new HashMap<>();
-    private final Map<String, AutoNegotiationState> autoNegotiationStates = new HashMap<>();
+    private final Map<String, NegotiationContext>  autoCtx      = new HashMap<>();
+    private final Map<String, NegotiationStrategy> autoStrategy = new HashMap<>();
     private final List<DealerBuyerScreen.BuyerInterest> interests = new ArrayList<>();
     private final Map<String, List<ACLMessage>> pendingUpdates = new HashMap<>();
     private final Map<String, String> sessionToBuyer = new HashMap<>();
@@ -140,7 +144,13 @@ public class SimpleDealerAgent extends Agent {
         autoModeByListingId.remove(listingId);
 
         if (autoNegotiate) {
-            autoNegotiationStates.put(sessionId, AutoNegotiationState.fromAskingPrice(askingPrice, minAcceptPrice));
+            NegotiationStrategy strategy = new LinearStrategy();
+            // Dealer: initialOffer = askingPrice (high), reservePrice = minAcceptPrice (low)
+            NegotiationContext ctx = new NegotiationContext(askingPrice, minAcceptPrice, 10, 0);
+            autoStrategy.put(sessionId, strategy);
+            autoCtx.put(sessionId, ctx);
+            System.out.printf("[AUTO-DEALER] Strategy: %s | Ask: %.2f | Min: %.2f%n",
+                    strategy.getName(), askingPrice, minAcceptPrice);
             return;
         }
 
@@ -188,9 +198,10 @@ public class SimpleDealerAgent extends Agent {
         String action = parts[1];
         double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
-        AutoNegotiationState autoState = autoNegotiationStates.get(sessionId);
-        if (autoState != null) {
-            applyAutoNegotiationUpdate(sessionId, autoState, action, amount);
+        NegotiationContext ctx      = autoCtx.get(sessionId);
+        NegotiationStrategy strategy = autoStrategy.get(sessionId);
+        if (ctx != null && strategy != null) {
+            applyAutoNegotiationUpdate(sessionId, ctx, strategy, action, amount);
             return;
         }
 
@@ -222,45 +233,40 @@ public class SimpleDealerAgent extends Agent {
         }
     }
 
-    private void applyAutoNegotiationUpdate(String sessionId, AutoNegotiationState state, String action, double buyerOffer) {
+    private void applyAutoNegotiationUpdate(String sessionId, NegotiationContext ctx,
+                                             NegotiationStrategy strategy,
+                                             String action, double buyerOffer) {
         if ("COUNTER".equals(action)) {
-            if (buyerOffer >= state.currentAsk) {
+            // Compute the dealer's scheduled price at the current round
+            double schedulePrice = strategy.nextOffer(ctx);
+
+            if (buyerOffer >= schedulePrice) {
+                // Buyer is already offering at or above our scheduled ask — accept!
+                System.out.printf("[AUTO-DEALER] Buyer offer %.2f >= schedule %.2f. ACCEPTING.%n",
+                        buyerOffer, schedulePrice);
                 sendNegotiationAction(sessionId, "ACCEPT", buyerOffer, ACLMessage.ACCEPT_PROPOSAL);
-                autoNegotiationStates.remove(sessionId);
+                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
                 return;
             }
 
-            if (state.roundsElapsed >= state.maxRounds) {
+            if (ctx.isExhausted()) {
+                System.out.println("[AUTO-DEALER] Max rounds reached. REJECTING.");
                 sendNegotiationAction(sessionId, "REJECT", 0, ACLMessage.REJECT_PROPOSAL);
-                autoNegotiationStates.remove(sessionId);
+                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
                 return;
             }
 
-            double nextAsk = Math.max(state.minAsk, state.currentAsk - state.step);
-            state.roundsElapsed++;
-
-            if (buyerOffer >= nextAsk) {
-                sendNegotiationAction(sessionId, "ACCEPT", buyerOffer, ACLMessage.ACCEPT_PROPOSAL);
-                autoNegotiationStates.remove(sessionId);
-                return;
-            }
-
-            if (nextAsk <= state.minAsk) {
-                sendNegotiationAction(sessionId, "REJECT", 0, ACLMessage.REJECT_PROPOSAL);
-                autoNegotiationStates.remove(sessionId);
-                return;
-            }
-
-            state.currentAsk = nextAsk;
-            sendNegotiationAction(sessionId, "COUNTER", nextAsk, ACLMessage.PROPOSE);
+            // Counter with the scheduled price and advance
+            System.out.printf("[AUTO-DEALER] Round %d/%d — countering with: RM %.2f%n",
+                    ctx.roundsElapsed, ctx.maxRounds, schedulePrice);
+            autoCtx.put(sessionId, ctx.nextRound());
+            sendNegotiationAction(sessionId, "COUNTER", schedulePrice, ACLMessage.PROPOSE);
             return;
         }
 
         if ("ACCEPT".equals(action) || "REJECT".equals(action) || "CANCEL".equals(action)) {
-            autoNegotiationStates.remove(sessionId);
-            if ("ACCEPT".equals(action)) {
-                reportDealToBroker(sessionId, buyerOffer);
-            }
+            autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
+            if ("ACCEPT".equals(action)) reportDealToBroker(sessionId, buyerOffer);
         }
     }
 
@@ -319,26 +325,5 @@ public class SimpleDealerAgent extends Agent {
         );
     }
 
-    private static final class AutoNegotiationState {
-        private final double minAsk;
-        private final double step;
-        private final int maxRounds;
-        private int roundsElapsed;
-        private double currentAsk;
-
-        private AutoNegotiationState(double minAsk, double step, int maxRounds, double currentAsk) {
-            this.minAsk = minAsk;
-            this.step = step;
-            this.maxRounds = maxRounds;
-            this.roundsElapsed = 0;
-            this.currentAsk = currentAsk;
-        }
-
-        private static AutoNegotiationState fromAskingPrice(double askingPrice, double minAcceptPrice) {
-            double minAsk = minAcceptPrice;
-            int maxRounds = 10;
-            double step = (askingPrice - minAsk) / maxRounds;
-            return new AutoNegotiationState(minAsk, step, maxRounds, askingPrice);
-        }
-    }
+    // AutoNegotiationState removed — tactic logic now lives in AutoNego.strategy.*
 }

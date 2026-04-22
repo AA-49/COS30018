@@ -1,4 +1,4 @@
-package AutoNego;
+package AutoNego.GUI;
 
 import jade.core.Agent;
 import javax.swing.*;
