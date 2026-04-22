@@ -19,6 +19,9 @@ public class SimpleDealerAgent extends Agent {
     private final Map<String, AutoNegotiationState> autoNegotiationStates = new HashMap<>();
     private final List<DealerBuyerScreen.BuyerInterest> interests = new ArrayList<>();
     private final Map<String, List<ACLMessage>> pendingUpdates = new HashMap<>();
+    private final Map<String, String> sessionToBuyer = new HashMap<>();
+    private final Map<String, String> sessionToListingId = new HashMap<>();
+
     private DealerInputGui inputGui;
     private DealerBuyerScreen buyerScreen;
 
@@ -77,8 +80,8 @@ public class SimpleDealerAgent extends Agent {
                 handleBuyerInterest(message);
             } else if ("negotiation-start".equals(conversationId)) {
                 handleNegotiationStart(message);
-            } else if ("negotiation-update".equals(conversationId)) {
-                handleNegotiationUpdate(message);
+            } else if ("negotiation-action".equals(conversationId)) {
+                handleNegotiationAction(message);
             }
         }
     }
@@ -121,14 +124,18 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void handleNegotiationStart(ACLMessage message) {
-        String[] parts    = DemoMessageCodec.decodeFields(message.getContent(), 7);
-        String sessionId  = parts[0];
-        String listingId  = parts[1];
-        String buyerName  = parts[2];
-        String brand      = parts[3];
-        String type       = parts[4];
-        double askingPrice = Double.parseDouble(parts[5]);
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 7);
+        String sessionId = parts[0];
+        String buyerName = parts[1];
+        String brand = parts[2];
+        String type = parts[3];
+        double askingPrice = Double.parseDouble(parts[4]);
+        String listingId = parts[5];
         double minAcceptPrice = Double.parseDouble(parts[6]);
+
+        sessionToBuyer.put(sessionId, buyerName);
+        sessionToListingId.put(sessionId, listingId);
+
         boolean autoNegotiate = autoModeByListingId.getOrDefault(listingId, false);
         autoModeByListingId.remove(listingId);
 
@@ -168,20 +175,26 @@ public class SimpleDealerAgent extends Agent {
         });
     }
 
-    private void handleNegotiationUpdate(ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
+    private void handleNegotiationAction(ACLMessage message) {
+        String[] parts;
+        try {
+            parts = DemoMessageCodec.decodeFields(message.getContent(), 2);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Dealer received malformed message: " + message.getContent());
+            return;
+        }
+        
         String sessionId = parts[0];
-        String event = parts[1];
-        double amount = Double.parseDouble(parts[2]);
+        String action = parts[1];
+        double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
         AutoNegotiationState autoState = autoNegotiationStates.get(sessionId);
         if (autoState != null) {
-            applyAutoNegotiationUpdate(sessionId, autoState, event, amount);
+            applyAutoNegotiationUpdate(sessionId, autoState, action, amount);
             return;
         }
 
         DealerNegotiationGui gui = negotiationWindows.get(sessionId);
-
         if (gui == null) {
             // GUI not ready yet — queue this update for when it opens
             pendingUpdates.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(message);
@@ -192,26 +205,25 @@ public class SimpleDealerAgent extends Agent {
         SwingUtilities.invokeLater(() -> applyNegotiationUpdate(gui, message));
     }
 
-    // Extracted so both the flush path and the live path use the same logic
     private void applyNegotiationUpdate(DealerNegotiationGui gui, ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
-        String event  = parts[1];
-        double amount = Double.parseDouble(parts[2]);
-        String note   = parts[3];
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 2);
+        String action  = parts[1];
+        double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
-        if ("BUYER_COUNTER".equals(event)) {
+        if ("COUNTER".equals(action)) {
             gui.addBuyerOffer(amount, "Buyer counter-offer");
-        } else if ("ACCEPTED".equals(event)) {
-            gui.addSystemMessage(note);
+        } else if ("ACCEPT".equals(action)) {
+            gui.addSystemMessage("Buyer accepted your offer of RM " + String.format("%,.2f", amount));
             gui.lockNegotiation(true);
-        } else if ("FAILED".equals(event)) {
-            gui.addSystemMessage(note);
+            reportDealToBroker(parts[0], amount); // parts[0] is sessionId
+        } else if ("REJECT".equals(action) || "CANCEL".equals(action)) {
+            gui.addSystemMessage("Buyer ended the negotiation.");
             gui.lockNegotiation(false);
         }
     }
 
-    private void applyAutoNegotiationUpdate(String sessionId, AutoNegotiationState state, String event, double buyerOffer) {
-        if ("BUYER_COUNTER".equals(event)) {
+    private void applyAutoNegotiationUpdate(String sessionId, AutoNegotiationState state, String action, double buyerOffer) {
+        if ("COUNTER".equals(action)) {
             if (buyerOffer >= state.currentAsk) {
                 sendNegotiationAction(sessionId, "ACCEPT", buyerOffer, ACLMessage.ACCEPT_PROPOSAL);
                 autoNegotiationStates.remove(sessionId);
@@ -244,8 +256,11 @@ public class SimpleDealerAgent extends Agent {
             return;
         }
 
-        if ("ACCEPTED".equals(event) || "FAILED".equals(event)) {
+        if ("ACCEPT".equals(action) || "REJECT".equals(action) || "CANCEL".equals(action)) {
             autoNegotiationStates.remove(sessionId);
+            if ("ACCEPT".equals(action)) {
+                reportDealToBroker(sessionId, buyerOffer);
+            }
         }
     }
 
@@ -263,11 +278,36 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void sendNegotiationAction(String sessionId, String action, double amount, int performative) {
+        String buyerName = sessionToBuyer.get(sessionId);
+        if (buyerName == null) return;
+
         ACLMessage message = new ACLMessage(performative);
-        message.addReceiver(broker);
+        message.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
         message.setConversationId("negotiation-action");
         message.setContent(DemoMessageCodec.encodeFields(sessionId, action, Double.toString(amount)));
         send(message);
+
+        if ("ACCEPT".equals(action)) {
+            reportDealToBroker(sessionId, amount);
+        }
+    }
+
+    private void reportDealToBroker(String sessionId, double finalPrice) {
+        String listingId = sessionToListingId.get(sessionId);
+        String buyerName = sessionToBuyer.get(sessionId);
+        if (listingId == null || buyerName == null) return;
+
+        double commission = finalPrice * 0.05; // 5% commission
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(broker);
+        msg.setConversationId("deal-completed");
+        msg.setContent(DemoMessageCodec.encodeFields(
+                listingId, 
+                Double.toString(finalPrice), 
+                Double.toString(commission),
+                buyerName
+        ));
+        send(msg);
     }
 
     private String interestKey(DealerBuyerScreen.BuyerInterest interest) {

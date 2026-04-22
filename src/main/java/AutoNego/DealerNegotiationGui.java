@@ -21,6 +21,10 @@ import java.time.format.DateTimeFormatter;
  */
 public class DealerNegotiationGui extends JFrame {
 
+    /**
+     * Interface to pass user actions (Accept, Counter, Reject) from the GUI 
+     * back to the Agent.
+     */
     public interface OnNegotiationListener {
         void onAccept(double currentOffer);
         void onCounterOffer(double counterAmount);
@@ -256,12 +260,17 @@ public class DealerNegotiationGui extends JFrame {
 
     // ── Public API called by the agent ────────────────────────────────────
 
-    /** Called when buyer sends a new offer (from JADE message processing) */
+    /** 
+     * Called when buyer sends a new offer (from JADE message processing).
+     * This method re-enables the UI so the dealer can now respond.
+     */
     public void addBuyerOffer(double amount, String label) {
         SwingUtilities.invokeLater(() -> {
             this.currentOffer = amount;
             currentOfferLabel.setText("RM " + String.format("%,.2f", amount));
             addBubble(amount, label, false);
+            // Critical Fix: Unlock the UI now that it's the Dealer's turn
+            setWaitingState(false); 
         });
     }
 
@@ -285,6 +294,24 @@ public class DealerNegotiationGui extends JFrame {
             addSystemEntry(accepted
                     ? "✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer)
                     : "❌ Negotiation ended without agreement.");
+        });
+    }
+
+    /** 
+     * View state management.
+     * Prevents the user from making "out-of-turn" offers.
+     * When isWaiting is true, text fields and buttons are disabled.
+     */
+    public void setWaitingState(boolean isWaiting) {
+        SwingUtilities.invokeLater(() -> {
+            acceptButton.setEnabled(!isWaiting);
+            sendButton.setEnabled(!isWaiting);
+            counterField.setEnabled(!isWaiting);
+            if (isWaiting) {
+                counterField.setText("Waiting for response...");
+            } else {
+                counterField.setText("");
+            }
         });
     }
 
@@ -313,8 +340,7 @@ public class DealerNegotiationGui extends JFrame {
             return;
         }
 
-        counterField.setText("");
-        addDealerOffer(counter, "Counter-offer");
+        setWaitingState(true);
         if (negotiationListener != null) negotiationListener.onCounterOffer(counter);
     }
 
@@ -387,8 +413,10 @@ public class DealerNegotiationGui extends JFrame {
 
     private void scrollToBottom() {
         SwingUtilities.invokeLater(() -> {
-            JScrollBar bar = chatScroll.getVerticalScrollBar();
-            bar.setValue(bar.getMaximum());
+            if (chatScroll != null) {
+                JScrollBar bar = chatScroll.getVerticalScrollBar();
+                bar.setValue(bar.getMaximum());
+            }
         });
     }
 

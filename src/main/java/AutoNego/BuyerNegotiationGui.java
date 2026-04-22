@@ -280,12 +280,17 @@ public class BuyerNegotiationGui extends JFrame {
 
     // ── Public API called by the agent ────────────────────────────────────
 
-    /** Called when a dealer sends a new offer to this buyer */
+    /** 
+     * Called when a dealer sends a new offer to this buyer.
+     * This method re-enables the UI so the buyer can respond.
+     */
     public void addDealerOffer(double amount, String label) {
         SwingUtilities.invokeLater(() -> {
             this.currentOffer = amount;
             currentOfferLabel.setText("RM " + String.format("%,.2f", amount));
             addBubble(new OfferEntry(OfferEntry.Side.DEALER, amount, label));
+            // Critical Fix: Unlock the UI now that it's the Buyer's turn
+            setWaitingState(false); 
         });
     }
 
@@ -310,6 +315,24 @@ public class BuyerNegotiationGui extends JFrame {
                 addSystemEntry("✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer));
             } else {
                 addSystemEntry("❌ Negotiation ended without agreement.");
+            }
+        });
+    }
+
+    /** 
+     * View state management.
+     * Prevents the user from making "out-of-turn" offers.
+     * When isWaiting is true, text fields and buttons are disabled.
+     */
+    public void setWaitingState(boolean isWaiting) {
+        SwingUtilities.invokeLater(() -> {
+            acceptButton.setEnabled(!isWaiting);
+            sendButton.setEnabled(!isWaiting);
+            counterField.setEnabled(!isWaiting);
+            if (isWaiting) {
+                counterField.setText("Waiting for response...");
+            } else {
+                counterField.setText("");
             }
         });
     }
@@ -339,8 +362,7 @@ public class BuyerNegotiationGui extends JFrame {
             return;
         }
 
-        counterField.setText("");
-        addBuyerOffer(counter, "Counter-offer");
+        setWaitingState(true);
         if (negotiationListener != null) negotiationListener.onCounterOffer(counter);
     }
 
@@ -415,8 +437,10 @@ public class BuyerNegotiationGui extends JFrame {
 
     private void scrollToBottom() {
         SwingUtilities.invokeLater(() -> {
-            JScrollBar bar = chatScroll.getVerticalScrollBar();
-            bar.setValue(bar.getMaximum());
+            if (chatScroll != null) {
+                JScrollBar bar = chatScroll.getVerticalScrollBar();
+                bar.setValue(bar.getMaximum());
+            }
         });
     }
 

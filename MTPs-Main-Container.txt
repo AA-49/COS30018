@@ -1,1 +1,1 @@
-http://AndyHP.suts.internal:7778/acc
+http://hein-83m0:7778/acc
