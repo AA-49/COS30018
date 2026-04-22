@@ -16,6 +16,8 @@ public class SimpleDealerAgent extends Agent {
     private final Map<String, String> interestListingIds = new HashMap<>();
     private final Map<String, DealerNegotiationGui> negotiationWindows = new HashMap<>();
     private final List<DealerBuyerScreen.BuyerInterest> interests = new ArrayList<>();
+    private final Map<String, String> sessionToBuyer = new HashMap<>();
+    private final Map<String, String> sessionToListingId = new HashMap<>();
 
     private DealerInputGui inputGui;
     private DealerBuyerScreen buyerScreen;
@@ -74,8 +76,8 @@ public class SimpleDealerAgent extends Agent {
                 handleBuyerInterest(message);
             } else if ("negotiation-start".equals(conversationId)) {
                 handleNegotiationStart(message);
-            } else if ("negotiation-update".equals(conversationId)) {
-                handleNegotiationUpdate(message);
+            } else if ("negotiation-action".equals(conversationId)) {
+                handleNegotiationAction(message);
             }
         }
     }
@@ -114,12 +116,16 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void handleNegotiationStart(ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 5);
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 6);
         String sessionId = parts[0];
         String buyerName = parts[1];
         String brand = parts[2];
         String type = parts[3];
         double askingPrice = Double.parseDouble(parts[4]);
+        String listingId = parts[5];
+
+        sessionToBuyer.put(sessionId, buyerName);
+        sessionToListingId.put(sessionId, listingId);
 
         SwingUtilities.invokeLater(() -> {
             DealerNegotiationGui gui = new DealerNegotiationGui(this, buyerName, brand, type, askingPrice);
@@ -144,24 +150,30 @@ public class SimpleDealerAgent extends Agent {
         });
     }
 
-    private void handleNegotiationUpdate(ACLMessage message) {
-        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 4);
-        DealerNegotiationGui gui = negotiationWindows.get(parts[0]);
-        if (gui == null) {
+    private void handleNegotiationAction(ACLMessage message) {
+        String[] parts;
+        try {
+            parts = DemoMessageCodec.decodeFields(message.getContent(), 2);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Dealer received malformed message: " + message.getContent());
             return;
         }
+        
+        String sessionId = parts[0];
+        String action = parts[1];
+        double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
-        String event = parts[1];
-        double amount = Double.parseDouble(parts[2]);
-        String note = parts[3];
+        DealerNegotiationGui gui = negotiationWindows.get(sessionId);
+        if (gui == null) return;
 
-        if ("BUYER_COUNTER".equals(event)) {
+        if ("COUNTER".equals(action)) {
             gui.addBuyerOffer(amount, "Buyer counter-offer");
-        } else if ("ACCEPTED".equals(event)) {
-            gui.addSystemMessage(note);
+        } else if ("ACCEPT".equals(action)) {
+            gui.addSystemMessage("Buyer accepted your offer of RM " + String.format("%,.2f", amount));
             gui.lockNegotiation(true);
-        } else if ("FAILED".equals(event)) {
-            gui.addSystemMessage(note);
+            reportDealToBroker(sessionId, amount);
+        } else if ("REJECT".equals(action) || "CANCEL".equals(action)) {
+            gui.addSystemMessage("Buyer ended the negotiation.");
             gui.lockNegotiation(false);
         }
     }
@@ -180,11 +192,36 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void sendNegotiationAction(String sessionId, String action, double amount, int performative) {
+        String buyerName = sessionToBuyer.get(sessionId);
+        if (buyerName == null) return;
+
         ACLMessage message = new ACLMessage(performative);
-        message.addReceiver(broker);
+        message.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
         message.setConversationId("negotiation-action");
         message.setContent(DemoMessageCodec.encodeFields(sessionId, action, Double.toString(amount)));
         send(message);
+
+        if ("ACCEPT".equals(action)) {
+            reportDealToBroker(sessionId, amount);
+        }
+    }
+
+    private void reportDealToBroker(String sessionId, double finalPrice) {
+        String listingId = sessionToListingId.get(sessionId);
+        String buyerName = sessionToBuyer.get(sessionId);
+        if (listingId == null || buyerName == null) return;
+
+        double commission = finalPrice * 0.05; // 5% commission
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(broker);
+        msg.setConversationId("deal-completed");
+        msg.setContent(DemoMessageCodec.encodeFields(
+                listingId, 
+                Double.toString(finalPrice), 
+                Double.toString(commission),
+                buyerName
+        ));
+        send(msg);
     }
 
     private String interestKey(DealerBuyerScreen.BuyerInterest interest) {
