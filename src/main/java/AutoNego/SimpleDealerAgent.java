@@ -317,13 +317,28 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private String interestKey(DealerBuyerScreen.BuyerInterest interest) {
-        return DemoMessageCodec.encodeFields(
-                interest.buyerName,
-                interest.carBrand,
-                interest.carType,
-                Double.toString(interest.buyerInitialOffer)
-        );
     }
 
-    // AutoNegotiationState removed — tactic logic now lives in AutoNego.strategy.*
+    private static final class AutoNegotiationState {
+        private final double minAsk;
+        private final double step;
+        private final int maxRounds;
+        private int roundsElapsed;
+        private double currentAsk;
+
+        private AutoNegotiationState(double minAsk, double step, int maxRounds, double currentAsk) {
+            this.minAsk = minAsk;
+            this.step = step;
+            this.maxRounds = maxRounds;
+            this.roundsElapsed = 0;
+            this.currentAsk = currentAsk;
+        }
+
+        private static AutoNegotiationState fromAskingPrice(double askingPrice, double minAcceptPrice) {
+            double minAsk = minAcceptPrice;
+            int maxRounds = 10;
+            double step = (askingPrice - minAsk) / maxRounds;
+            return new AutoNegotiationState(minAsk, step, maxRounds, askingPrice);
+        }
+    }
 }

@@ -230,4 +230,20 @@ public class SimpleBrokerAgent extends Agent {
 
     private record ListingRecord(String id, String dealerName, String brand, String type, double price, double minAcceptPrice) {
     }
+
+    private static final class SessionRecord {
+        private final String id;
+        private final String listingId;
+        private final String buyerName;
+        private final String dealerName;
+        private double latestOffer;
+
+        private SessionRecord(String id, ListingRecord listing, String buyerName) {
+            this.id = id;
+            this.listingId = listing.id;
+            this.buyerName = buyerName;
+            this.dealerName = listing.dealerName;
+            this.latestOffer = listing.price;
+        }
+    }
 }

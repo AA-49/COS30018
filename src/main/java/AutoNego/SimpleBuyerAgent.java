@@ -279,12 +279,32 @@ public class SimpleBuyerAgent extends Agent {
         send(request);
     }
 
-    private String keyOf(BuyerMatchedCarsGui.CarListing listing) {
-        return DemoMessageCodec.encodeFields(
-                listing.brand,
-                listing.type,
-                Double.toString(listing.price),
-                listing.dealerName
-        );
+    }
+
+    private static final class NegotiationState {
+        final String sessionId;
+        final double firstOffer;
+        final double reservePrice;
+        final int maxRounds;
+        int roundsElapsed;
+
+        // e controls the curve:
+        // 0.2 = Boulware, 1.0 = Linear, 3.0 = Conceder
+        final double e;
+
+        NegotiationState(String sessionId, double firstOffer, double reservePrice, int maxRounds, double e) {
+            this.sessionId    = sessionId;
+            this.firstOffer   = firstOffer;
+            this.reservePrice = reservePrice;
+            this.maxRounds    = maxRounds;
+            this.roundsElapsed = 0;
+            this.e            = e;
+        }
+
+        double computeNextOffer() {
+            double t = (double) roundsElapsed / maxRounds;   // progress 0.0 → 1.0
+            double ft = Math.pow(t, 1.0 / e);               // concession curve
+            return firstOffer + (reservePrice - firstOffer) * ft;
+        }
     }
 }
