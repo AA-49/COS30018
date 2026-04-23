@@ -51,7 +51,7 @@ public class FipaBuyerAgent extends Agent {
             ACLMessage msg = new ACLMessage(ACLMessage.REQUEST);
             msg.addReceiver(new AID("broker", AID.ISLOCALNAME));
             msg.setConversationId("buyer-search");
-            msg.setContent(DemoMessageCodec.encodeFields(brand, type, Double.toString(maxPrice)));
+            msg.setContent(DemoMessageCodec.encodeFields(brand, type, Double.toString(maxPrice), Double.toString(reservePrice)));
             send(msg);
         });
         inputGui.display();
@@ -113,8 +113,7 @@ public class FipaBuyerAgent extends Agent {
             String sessionId = cfp.getConversationId();
 
             if (autoSessions.contains(sessionId)) {
-                CompletableFuture<BuyerNegotiationGui> guiFuture = negotiationWindows.get(sessionId);
-                addBehaviour(new AutoNegotiationSession(myAgent, cfp, sessionId, guiFuture));
+                addBehaviour(new AutoNegotiationSession(myAgent, cfp, sessionId));
             } else {
                 CompletableFuture<BuyerNegotiationGui> guiFuture = negotiationWindows.get(sessionId);
                 if (guiFuture != null) {
@@ -145,7 +144,11 @@ public class FipaBuyerAgent extends Agent {
                     ACLMessage req = new ACLMessage(ACLMessage.REQUEST);
                     req.addReceiver(new AID("broker", AID.ISLOCALNAME));
                     req.setConversationId("negotiation-request");
-                    req.setContent(listingId);
+                    req.setContent(DemoMessageCodec.encodeFields(
+                            listingId, 
+                            Double.toString(myFirstOffer), 
+                            Double.toString(myReservePrice)
+                    ));
                     send(req);
                 }
 
@@ -185,27 +188,13 @@ public class FipaBuyerAgent extends Agent {
         autoModeByListingId.remove(listingId);
 
         if (auto) {
-            // Auto mode: strategy-driven. GUI opens in read-only mode so the negotiation
-            // is still visible, but all input buttons are disabled.
+            // Auto mode: strategy-driven without GUI.
             NegotiationStrategy strategy = new LinearStrategy();
             // Buyer: initialOffer = first (low) offer, reserve = max willing to pay
             NegotiationContext ctx = new NegotiationContext(myFirstOffer, myReservePrice, 10, 0);
             autoSessions.add(sessionId);
             sessionToAutoCtx.put(sessionId, ctx);
             sessionToAutoStrategy.put(sessionId, strategy);
-
-            CompletableFuture<BuyerNegotiationGui> guiFuture = new CompletableFuture<>();
-            negotiationWindows.put(sessionId, guiFuture);
-            final String strategyName = strategy.getName();
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                BuyerMatchedCarsGui.CarListing listing = new BuyerMatchedCarsGui.CarListing(
-                        brand, type, initialPrice, dealerName);
-                BuyerNegotiationGui gui = new BuyerNegotiationGui(this, listing);
-                gui.display();
-                gui.lockNegotiation(true); // disable all input — display-only
-                gui.addSystemMessage("Auto-negotiating with " + strategyName + " strategy...");
-                guiFuture.complete(gui);
-            });
 
             System.out.printf("[AUTO-FIPA-BUYER] Session %s | Strategy: %s | Start: %.2f | Reserve: %.2f%n",
                     sessionId, strategy.getName(), myFirstOffer, myReservePrice);
@@ -294,7 +283,7 @@ public class FipaBuyerAgent extends Agent {
         @Override
         protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) {
             guiFuture.thenAccept(gui -> {
-                String[] parts = DemoMessageCodec.decodeFields(propose.getContent(), 3);
+                String[] parts = DemoMessageCodec.decodeFields(accept.getContent(), 3);
                 double finalPrice = Double.parseDouble(parts[2]);
                 gui.addSystemMessage("Dealer accepted your offer of RM " + String.format("%,.2f", finalPrice));
                 gui.lockNegotiation(true);
@@ -314,13 +303,10 @@ public class FipaBuyerAgent extends Agent {
     // AUTOOOOO
     private class AutoNegotiationSession extends SSIteratedContractNetResponder {
         private final String sessionId;
-        private final CompletableFuture<BuyerNegotiationGui> guiFuture;
 
-        AutoNegotiationSession(Agent a, ACLMessage cfp, String sessionId,
-                CompletableFuture<BuyerNegotiationGui> guiFuture) {
+        AutoNegotiationSession(Agent a, ACLMessage cfp, String sessionId) {
             super(a, cfp);
             this.sessionId = sessionId;
-            this.guiFuture = guiFuture;
         }
 
         @Override
@@ -335,19 +321,9 @@ public class FipaBuyerAgent extends Agent {
                 return cfp.createReply(ACLMessage.REFUSE);
             }
 
-            // Show the dealer's ask in the GUI
-            guiFuture.thenAccept(gui -> javax.swing.SwingUtilities
-                    .invokeLater(() -> gui.addDealerOffer(dealerPrice, "Dealer's Ask (auto)")));
-
-            // Dealer dropped to or below our reserve — accept at dealer's price
             if (dealerPrice <= ctx.reservePrice) {
                 System.out.printf("[AUTO-FIPA-BUYER] Dealer %.2f <= reserve %.2f — ACCEPTING%n",
                         dealerPrice, ctx.reservePrice);
-                guiFuture.thenAccept(gui -> javax.swing.SwingUtilities.invokeLater(() -> {
-                    gui.addBuyerOffer(dealerPrice, "Auto Accepted");
-                    gui.addSystemMessage("Auto accepted the dealer's price.");
-                    gui.lockNegotiation(true);
-                }));
                 cleanupAutoSession();
                 ACLMessage propose = cfp.createReply(ACLMessage.PROPOSE);
                 propose.setContent(DemoMessageCodec.encodeFields(sessionId, "PROPOSE", Double.toString(dealerPrice)));
@@ -356,10 +332,6 @@ public class FipaBuyerAgent extends Agent {
 
             if (ctx.isExhausted()) {
                 System.out.println("[AUTO-FIPA-BUYER] Max rounds reached — REFUSING");
-                guiFuture.thenAccept(gui -> javax.swing.SwingUtilities.invokeLater(() -> {
-                    gui.addSystemMessage("Max rounds reached. Auto-negotiation ended.");
-                    gui.lockNegotiation(true);
-                }));
                 cleanupAutoSession();
                 return cfp.createReply(ACLMessage.REFUSE);
             }
@@ -370,11 +342,6 @@ public class FipaBuyerAgent extends Agent {
                     ctx.roundsElapsed, ctx.maxRounds, myOffer);
             sessionToAutoCtx.put(sessionId, ctx.nextRound());
 
-            // Show our counter-offer in the GUI
-            final double offer = myOffer;
-            guiFuture.thenAccept(gui -> javax.swing.SwingUtilities
-                    .invokeLater(() -> gui.addBuyerOffer(offer, "Auto Counter-Offer")));
-
             ACLMessage propose = cfp.createReply(ACLMessage.PROPOSE);
             propose.setContent(DemoMessageCodec.encodeFields(sessionId, "PROPOSE", Double.toString(myOffer)));
             return propose;
@@ -382,13 +349,9 @@ public class FipaBuyerAgent extends Agent {
 
         @Override
         protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) {
-            String[] parts = DemoMessageCodec.decodeFields(propose.getContent(), 3);
+            String[] parts = DemoMessageCodec.decodeFields(accept.getContent(), 3);
             double finalPrice = Double.parseDouble(parts[2]);
             System.out.printf("[AUTO-FIPA-BUYER] Deal accepted! Final price: RM %.2f%n", finalPrice);
-            guiFuture.thenAccept(gui -> javax.swing.SwingUtilities.invokeLater(() -> {
-                gui.addSystemMessage("Deal accepted at RM " + String.format("%,.2f", finalPrice));
-                gui.lockNegotiation(true);
-            }));
             cleanupAutoSession();
             ACLMessage inform = accept.createReply(ACLMessage.INFORM);
             inform.setContent("Deal finalized");
@@ -399,8 +362,6 @@ public class FipaBuyerAgent extends Agent {
         protected void handleRejectProposal(ACLMessage cfp, ACLMessage propose, ACLMessage reject) {
             // Dealer will send a counter-CFP; handleCfp will be invoked again automatically
             System.out.println("[AUTO-FIPA-BUYER] Proposal rejected — waiting for dealer counter...");
-            guiFuture.thenAccept(gui -> javax.swing.SwingUtilities
-                    .invokeLater(() -> gui.addSystemMessage("Proposal rejected. Waiting for counter...")));
         }
 
         private void cleanupAutoSession() {

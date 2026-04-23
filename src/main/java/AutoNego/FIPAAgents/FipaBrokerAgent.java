@@ -87,16 +87,17 @@ public class FipaBrokerAgent extends Agent {
 
     // what to do when buyer search for car
     private void handleBuyerSearch(ACLMessage message) {
-        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 3);
+        String[] request = DemoMessageCodec.decodeFields(message.getContent(), 4);
         String brand = request[0];
         String type = request[1];
-        double maxPrice = Double.parseDouble(request[2]);
+        double buyerFirstOffer = Double.parseDouble(request[2]);
+        double buyerReservePrice = Double.parseDouble(request[3]);
 
         List<String> matches = new ArrayList<>();
         for (ListingRecord listing : listings.values()) {
             if (listing.brand.equalsIgnoreCase(brand)
                     && listing.type.equalsIgnoreCase(type)
-                    && listing.price <= maxPrice) {
+                    && rangesOverlap(buyerFirstOffer, buyerReservePrice, listing.minAcceptPrice, listing.price)) {
                 matches.add(DemoMessageCodec.encodeFields(
                         listing.id,
                         listing.brand,
@@ -115,19 +116,48 @@ public class FipaBrokerAgent extends Agent {
 
     // what to do when buyer want to negotiate
     private void handleNegotiationRequest(ACLMessage message) {
-        ListingRecord listing = listings.get(message.getContent());
-        if (listing == null)
+        String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 1);
+        ListingRecord listing = listings.get(parts[0]);
+        if (listing == null) {
             return;
+        }
+
+        String buyerName = message.getSender().getLocalName();
+        double buyerFirstOffer = listing.price;
+        
+        if (parts.length >= 3) {
+            buyerFirstOffer = Double.parseDouble(parts[1]);
+            double buyerReservePrice = Double.parseDouble(parts[2]);
+            boolean hasAgreementRange = rangesOverlap(
+                    buyerFirstOffer,
+                    buyerReservePrice,
+                    listing.minAcceptPrice,
+                    listing.price
+            );
+            if (!hasAgreementRange) {
+                ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
+                toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
+                toBuyer.setConversationId("negotiation-update");
+                toBuyer.setContent(DemoMessageCodec.encodeFields(
+                        "none",
+                        "FAILED",
+                        "0",
+                        "No agreement range between buyer and dealer."
+                ));
+                send(toBuyer);
+                return;
+            }
+        }
 
         ACLMessage notifyDealer = new ACLMessage(ACLMessage.INFORM);
         notifyDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
         notifyDealer.setConversationId("buyer-interest");
         notifyDealer.setContent(DemoMessageCodec.encodeFields(
                 listing.id,
-                message.getSender().getLocalName(),
+                buyerName,
                 listing.brand,
                 listing.type,
-                Double.toString(listing.price)));
+                Double.toString(buyerFirstOffer)));
         send(notifyDealer);
     }
 
@@ -195,6 +225,14 @@ public class FipaBrokerAgent extends Agent {
             dashboard.updateCommission(totalCommissions);
         });
         System.out.println("Broker: Deal completed. Total commissions: " + totalCommissions);
+    }
+
+    private boolean rangesOverlap(double buyerLow, double buyerHigh, double dealerLow, double dealerHigh) {
+        double normalizedBuyerLow = Math.min(buyerLow, buyerHigh);
+        double normalizedBuyerHigh = Math.max(buyerLow, buyerHigh);
+        double normalizedDealerLow = Math.min(dealerLow, dealerHigh);
+        double normalizedDealerHigh = Math.max(dealerLow, dealerHigh);
+        return Math.max(normalizedBuyerLow, normalizedDealerLow) <= Math.min(normalizedBuyerHigh, normalizedDealerHigh);
     }
 
     private record ListingRecord(String id, String dealerName, String brand, String type, double price,

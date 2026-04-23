@@ -19,7 +19,7 @@ public class SimpleDealerAgent extends Agent {
     private final Map<String, String> interestListingIds = new HashMap<>();
     private final Map<String, Boolean> autoModeByListingId = new HashMap<>();
     private final Map<String, DealerNegotiationGui> negotiationWindows = new HashMap<>();
-    private final Map<String, NegotiationContext>  autoCtx      = new HashMap<>();
+    private final Map<String, NegotiationContext> autoCtx = new HashMap<>();
     private final Map<String, NegotiationStrategy> autoStrategy = new HashMap<>();
     private final List<DealerBuyerScreen.BuyerInterest> interests = new ArrayList<>();
     private final Map<String, List<ACLMessage>> pendingUpdates = new HashMap<>();
@@ -59,8 +59,7 @@ public class SimpleDealerAgent extends Agent {
                     listing.brand,
                     listing.type,
                     Double.toString(listing.price),
-                    Double.toString(listing.minAcceptPrice)
-            ));
+                    Double.toString(listing.minAcceptPrice)));
         }
 
         ACLMessage message = new ACLMessage(ACLMessage.INFORM);
@@ -97,8 +96,7 @@ public class SimpleDealerAgent extends Agent {
                 parts[1],
                 parts[2],
                 parts[3],
-                Double.parseDouble(parts[4])
-        );
+                Double.parseDouble(parts[4]));
         interestListingIds.put(interestKey(interest), listingId);
 
         SwingUtilities.invokeLater(() -> {
@@ -145,7 +143,8 @@ public class SimpleDealerAgent extends Agent {
 
         if (autoNegotiate) {
             NegotiationStrategy strategy = new LinearStrategy();
-            // Dealer: initialOffer = askingPrice (high), reservePrice = minAcceptPrice (low)
+            // Dealer: initialOffer = askingPrice (high), reservePrice = minAcceptPrice
+            // (low)
             NegotiationContext ctx = new NegotiationContext(askingPrice, minAcceptPrice, 10, 0);
             autoStrategy.put(sessionId, strategy);
             autoCtx.put(sessionId, ctx);
@@ -161,10 +160,12 @@ public class SimpleDealerAgent extends Agent {
                 public void onAccept(double currentOffer) {
                     sendNegotiationAction(sessionId, "ACCEPT", currentOffer, ACLMessage.ACCEPT_PROPOSAL);
                 }
+
                 @Override
                 public void onCounterOffer(double counterAmount) {
                     sendNegotiationAction(sessionId, "COUNTER", counterAmount, ACLMessage.PROPOSE);
                 }
+
                 @Override
                 public void onReject() {
                     sendNegotiationAction(sessionId, "REJECT", 0, ACLMessage.REJECT_PROPOSAL);
@@ -193,12 +194,12 @@ public class SimpleDealerAgent extends Agent {
             System.err.println("Dealer received malformed message: " + message.getContent());
             return;
         }
-        
+
         String sessionId = parts[0];
         String action = parts[1];
         double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
-        NegotiationContext ctx      = autoCtx.get(sessionId);
+        NegotiationContext ctx = autoCtx.get(sessionId);
         NegotiationStrategy strategy = autoStrategy.get(sessionId);
         if (ctx != null && strategy != null) {
             applyAutoNegotiationUpdate(sessionId, ctx, strategy, action, amount);
@@ -212,13 +213,13 @@ public class SimpleDealerAgent extends Agent {
             return;
         }
 
-        // GUI is ready — apply immediately via EDT
+        // GUI is ready — apply immediately
         SwingUtilities.invokeLater(() -> applyNegotiationUpdate(gui, message));
     }
 
     private void applyNegotiationUpdate(DealerNegotiationGui gui, ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 2);
-        String action  = parts[1];
+        String action = parts[1];
         double amount = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
 
         if ("COUNTER".equals(action)) {
@@ -234,8 +235,8 @@ public class SimpleDealerAgent extends Agent {
     }
 
     private void applyAutoNegotiationUpdate(String sessionId, NegotiationContext ctx,
-                                             NegotiationStrategy strategy,
-                                             String action, double buyerOffer) {
+            NegotiationStrategy strategy,
+            String action, double buyerOffer) {
         if ("COUNTER".equals(action)) {
             // Compute the dealer's scheduled price at the current round
             double schedulePrice = strategy.nextOffer(ctx);
@@ -245,14 +246,16 @@ public class SimpleDealerAgent extends Agent {
                 System.out.printf("[AUTO-DEALER] Buyer offer %.2f >= schedule %.2f. ACCEPTING.%n",
                         buyerOffer, schedulePrice);
                 sendNegotiationAction(sessionId, "ACCEPT", buyerOffer, ACLMessage.ACCEPT_PROPOSAL);
-                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
+                autoCtx.remove(sessionId);
+                autoStrategy.remove(sessionId);
                 return;
             }
 
             if (ctx.isExhausted()) {
                 System.out.println("[AUTO-DEALER] Max rounds reached. REJECTING.");
                 sendNegotiationAction(sessionId, "REJECT", 0, ACLMessage.REJECT_PROPOSAL);
-                autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
+                autoCtx.remove(sessionId);
+                autoStrategy.remove(sessionId);
                 return;
             }
 
@@ -265,8 +268,10 @@ public class SimpleDealerAgent extends Agent {
         }
 
         if ("ACCEPT".equals(action) || "REJECT".equals(action) || "CANCEL".equals(action)) {
-            autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
-            if ("ACCEPT".equals(action)) reportDealToBroker(sessionId, buyerOffer);
+            autoCtx.remove(sessionId);
+            autoStrategy.remove(sessionId);
+            if ("ACCEPT".equals(action))
+                reportDealToBroker(sessionId, buyerOffer);
         }
     }
 
@@ -285,7 +290,8 @@ public class SimpleDealerAgent extends Agent {
 
     private void sendNegotiationAction(String sessionId, String action, double amount, int performative) {
         String buyerName = sessionToBuyer.get(sessionId);
-        if (buyerName == null) return;
+        if (buyerName == null)
+            return;
 
         ACLMessage message = new ACLMessage(performative);
         message.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
@@ -301,18 +307,18 @@ public class SimpleDealerAgent extends Agent {
     private void reportDealToBroker(String sessionId, double finalPrice) {
         String listingId = sessionToListingId.get(sessionId);
         String buyerName = sessionToBuyer.get(sessionId);
-        if (listingId == null || buyerName == null) return;
+        if (listingId == null || buyerName == null)
+            return;
 
         double commission = finalPrice * 0.05; // 5% commission
         ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
         msg.addReceiver(broker);
         msg.setConversationId("deal-completed");
         msg.setContent(DemoMessageCodec.encodeFields(
-                listingId, 
-                Double.toString(finalPrice), 
+                listingId,
+                Double.toString(finalPrice),
                 Double.toString(commission),
-                buyerName
-        ));
+                buyerName));
         send(msg);
     }
 
@@ -321,8 +327,7 @@ public class SimpleDealerAgent extends Agent {
                 interest.buyerName,
                 interest.carBrand,
                 interest.carType,
-                Double.toString(interest.buyerInitialOffer)
-        );
+                Double.toString(interest.buyerInitialOffer));
     }
 
     // AutoNegotiationState removed — tactic logic now lives in AutoNego.strategy.*
