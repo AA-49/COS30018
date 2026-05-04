@@ -1,5 +1,6 @@
 package AutoNego.GUI;
 
+import AutoNego.strategy.Offer;
 import jade.core.Agent;
 import javax.swing.*;
 import javax.swing.border.*;
@@ -297,6 +298,14 @@ public class BuyerNegotiationGui extends JFrame {
     /** Called when buyer successfully sends a counter (reflected in chat) */
     public void addBuyerOffer(double amount, String label) {
         SwingUtilities.invokeLater(() -> addBubble(new OfferEntry(OfferEntry.Side.BUYER, amount, label)));
+    }
+
+    public void addDealerOffer(Offer offer, String label) {
+        addDealerOffer(offer.price(), label + " | " + offer.toDisplayString());
+    }
+
+    public void addBuyerOffer(Offer offer, String label) {
+        addBuyerOffer(offer.price(), label + " | " + offer.toDisplayString());
     }
 
     /** For status messages like "Dealer accepted", "Negotiation ended" */

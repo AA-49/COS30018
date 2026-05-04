@@ -1,0 +1,147 @@
+
+
+===== PAGE 1 =====
+
+COS30018 – Intelligent Systems Project Assignment (Topic 1) 
+ 
+ 
+Automated Negotiation System 
+ Due: 11:59 pm 29/5/2026 (Friday of Week 12) 
+ Contributes 50% of your final result 
+ Group Assignment – Group of 4-5 students 
+ 
+Summary 
+You need to implement and demonstrate a platform for automated negotiation to trade automotive vehicles. 
+The platform will enable any number of car dealers and buyers to come in and sell or buy cars. You must 
+implement agents to represent the dealers and the buyers. The dealer lists his available cars at his retail 
+prices with a broker agent and the buyer contacts the broker agent to view these listings before engaging 
+with up to three dealers in direct negotiations. The objective of a dealer is to maximise his profit and a buyer 
+wants to buy her desired car at the lowest price. 
+ 
+The system will involve the following roles: 
+ Broker Agent (KA) (1 agent) 
+• Receives listings from dealers 
+• Sends relevant deals to buyers 
+• Facilitates negotiations between a pair of buyer and dealer 
+• Receives the commissions for each successful deal and a fixed fee for each negotiation 
+ Dealer Agent (DA) (at least 3 dealer agents) 
+• Sends listings to KA 
+• Receives a list of potential buyers and their offers 
+• Selects the buyers he wants to engage and returns this list to KA 
+• Initiates the negotiations with the selected buyers 
+ Buyer Agent (BA) (at least 5 buyer agents) 
+• Contacts KA with the specifications of the cars she wants to buy 
+• Receives a list of dealers whose cars match her specifications 
+• Sends back to KA the cars she is willing to negotiate with her first offers 
+• Receives the requests from dealers to negotiate (if any) 
+
+===== PAGE 2 =====
+
+COS30018 – Intelligent Systems Project Assignment (Topic 1) 
+ 
+Interaction configuration: 
+ 
+ 
+ 
+Buyer 1 Dealer 1 
+ 
+ 
+Buyer 2 
+ 
+ 
+Buyer 3 
+Dealer 2 
+ 
+ 
+Dealer 3 
+ 
+ 
+Constraints: 
+ The interaction protocols can be FIPA predefined (e.g. CNP, iterated CNP), nested or newly specified. 
+ The agents can use any standard content language. 
+ The sequence diagrams describing the implemented interaction protocols are included in the report. 
+ A GUI will be available for the user input, parameter settings and visualization (and a configuration file 
+for the defaults). 
+ 
+System requirements 
+ Basic version.1: One core functionality of the system is to provide the trading platform with the broKer 
+Agent KA. Dealers and buyers can join the platform. The GUI will allow DAs and BAs to input their 
+information (e.g. dealer’s listings or buyer’s requirements for a car). The platform will also support the 
+manual negotiation between a dealer and a buyer. 
+ Basic version.2: Another core functionality of the system is to provide automated negotiation 
+capability for a buyer. That is, the buyer can simply provide initial information such as her first offer 
+and her reserve price and the agent will automatically negotiate with the dealer to get the best deal for 
+her. You can assume that the agent is only engaging in a single negotiation with one dealer. 
+ Extension.1: Extending the automated negotiation functionality to include multiple concurrent 
+negotiations. 
+ Extension.2: Extending the automated negotiation functionality to allow for multi-attribute 
+negotiation. You’ll need to learn about integrative negotiation to implement a system that allows the 
+agent to achieve win-win negotiation outcomes. 
+ 
+Project requirements 
+ Source code maintained on Git based VCS (Github/Bitbucket/GitLab/…).  
+ Running illustrative demo of a working prototype (please refer to Marking Scheme for details on 
+functionality that needs to be implemented) 
+ The system should be demonstrable with a well-designed and realistic example 
+ Project report (8-10 pages) that includes the following sections 
+• Cover Page (with team details) and a Table of Contents (TOC) 
+• Introduction 
+• Overall system architecture 
+• Implemented interaction protocols 
+• Implemented negotiation strategies 
+• Implemented prediction algorithm/s 
+• Scenarios/examples to demonstrate how the system works 
+• Some critical analysis of how the system performs with and without negotiation 
+• Summary/Conclusion. 
+• Presentation + demo video link (10 minutes duration) 
+broKer 
+Agent 
+
+===== PAGE 3 =====
+
+COS30018 – Intelligent Systems Project Assignment (Topic 1) 
+ 
+Marking Scheme 
+ 
+Requirements Mark 
+Task 1: Complete development of Basic version.1 by building a multi -agent trading 
+platform with the KA and the GUI interface for the DAs and BAs to join the trading 
+platform. Basic interaction between KA -DAs and KA- BAs working fully according to 
+well-defined inter action protocols whose sequence diagrams are to be included in the 
+report. KA is able to receive the listings of the DAs and the requests from the BAs. KA is 
+able to update the BAs with the relevant offers and receive back their shortlists. The DAs 
+can then engage with their selected BAs to negotiate. 
+40 
+Task 2: Complete development of Basic version.2 by building an automated negotiation 
+program to allow a BA to automatically negotiate with a DA. 
+20 
+Project Report 10 
+Project Presentation (Video) 10 
+ 80 
+Research Component (can be done by the whole team, a sub-team, or an individual) 
+Select one of the Extensions and get your tutor’s approval then complete it very well. You 
+can get up to 40% for this component and your Assignment will get up to 120% 
+40 
+ 120/100 
+You need to follow good programming practice (e.g., well-designed, well-structured codes 
+with clear and helpful comments). Failure to do so get penalty. 
+Up to -20 
+You need to demonstrate the progress you make every week to your tutor. That is, if  your 
+tutor approaches you and asks for the progress, you have to be able to show the progress 
+you have made in comparison to the previous week. Failure to do so may result in a 
+penalty. 
+Up to -50 
+ 
+NOTE:  
+– Individual marks will be proportionally adjusted based on each team member’s overall contribution to 
+the project as indicated in the ‘Who did what’ declaration. 
+– You must also provide to shlee@swinburne.edu.my read only access to your git repository within 1 
+week of forming teams. 
+ 
+Submission 
+• You must upload your work to Canvas by 11:59pm on 29/5/2026(Friday).  Create a single zip file 
+with your code and a working version of your system. Standard late penalties apply - 10% for each 
+day late, more than 5 days late is 0%. 
+• The video (10 minute duration) link should be stated in the project report. 
+ 
+ 

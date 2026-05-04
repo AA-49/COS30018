@@ -11,9 +11,13 @@ public final class WeightedSumUtility implements UtilityFunction {
     private final double warrantyBest;
     private final double warrantyWorst;
 
-    private final double conditionWeight;
-    private final double conditionBest;
-    private final double conditionWorst;
+    private final double insuranceWeight;
+    private final double insuranceBest;
+    private final double insuranceWorst;
+
+    private final double servicePackageWeight;
+    private final double servicePackageBest;
+    private final double servicePackageWorst;
 
     private WeightedSumUtility(Builder b) {
         this.priceWeight = b.priceWeight;
@@ -22,9 +26,12 @@ public final class WeightedSumUtility implements UtilityFunction {
         this.warrantyWeight = b.warrantyWeight;
         this.warrantyBest = b.warrantyBest;
         this.warrantyWorst = b.warrantyWorst;
-        this.conditionWeight = b.conditionWeight;
-        this.conditionBest = b.conditionBest;
-        this.conditionWorst = b.conditionWorst;
+        this.insuranceWeight = b.insuranceWeight;
+        this.insuranceBest = b.insuranceBest;
+        this.insuranceWorst = b.insuranceWorst;
+        this.servicePackageWeight = b.servicePackageWeight;
+        this.servicePackageBest = b.servicePackageBest;
+        this.servicePackageWorst = b.servicePackageWorst;
     }
 
     @Override
@@ -40,9 +47,13 @@ public final class WeightedSumUtility implements UtilityFunction {
             total += warrantyWeight * normalise(offer.warrantyMonths(), warrantyBest, warrantyWorst);
             totalWeight += warrantyWeight;
         }
-        if (conditionWeight > 0) {
-            total += conditionWeight * normalise(offer.conditionScore(), conditionBest, conditionWorst);
-            totalWeight += conditionWeight;
+        if (insuranceWeight > 0) {
+            total += insuranceWeight * normalise(offer.insuranceIncludedMonths(), insuranceBest, insuranceWorst);
+            totalWeight += insuranceWeight;
+        }
+        if (servicePackageWeight > 0) {
+            total += servicePackageWeight * normalise(offer.servicePackageLevel(), servicePackageBest, servicePackageWorst);
+            totalWeight += servicePackageWeight;
         }
 
         return totalWeight == 0 ? 0.0 : Math.max(0.0, Math.min(1.0, total / totalWeight));
@@ -58,7 +69,8 @@ public final class WeightedSumUtility implements UtilityFunction {
     public static final class Builder {
         private double priceWeight = 0, priceBest = 0, priceWorst = 0;
         private double warrantyWeight = 0, warrantyBest = 0, warrantyWorst = 0;
-        private double conditionWeight = 0, conditionBest = 0, conditionWorst = 0;
+        private double insuranceWeight = 0, insuranceBest = 0, insuranceWorst = 0;
+        private double servicePackageWeight = 0, servicePackageBest = 0, servicePackageWorst = 0;
 
         // Configure price (for buyers, lower is better. for dealers, higher is better)
         public Builder price(double weight, double best, double worst) {
@@ -76,11 +88,19 @@ public final class WeightedSumUtility implements UtilityFunction {
             return this;
         }
 
-        // Configure car condition (higher is better)
-        public Builder conditionScore(double weight, double best, double worst) {
-            this.conditionWeight = weight;
-            this.conditionBest = best;
-            this.conditionWorst = worst;
+        // Configure included insurance months (higher is better)
+        public Builder insuranceIncludedMonths(double weight, double best, double worst) {
+            this.insuranceWeight = weight;
+            this.insuranceBest = best;
+            this.insuranceWorst = worst;
+            return this;
+        }
+
+        // Configure service package level (higher is better)
+        public Builder servicePackageLevel(double weight, double best, double worst) {
+            this.servicePackageWeight = weight;
+            this.servicePackageBest = best;
+            this.servicePackageWorst = worst;
             return this;
         }
 

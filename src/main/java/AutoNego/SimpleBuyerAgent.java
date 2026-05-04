@@ -163,7 +163,9 @@ public class SimpleBuyerAgent extends Agent {
 
         if (autoNegotiate) {
             NegotiationStrategy strategy = new LinearStrategy();
-            NegotiationContext ctx = new NegotiationContext(myFirstOffer, myReservePrice, 10, 0);
+            double buyerStartPrice = Math.min(myFirstOffer, myReservePrice);
+            double buyerReservePrice = Math.max(myFirstOffer, myReservePrice);
+            NegotiationContext ctx = new NegotiationContext(buyerStartPrice, buyerReservePrice, 10, 0);
             autoStrategy.put(sessionId, strategy);
             autoCtx.put(sessionId, ctx);
 
@@ -173,13 +175,13 @@ public class SimpleBuyerAgent extends Agent {
             System.out.printf("[AUTO] %s %s | Dealer asking: RM %.2f | Dealer: %s%n",
                     brand, type, askingPrice, dealerName);
             System.out.printf("[AUTO] My first offer: RM %.2f | Reserve: RM %.2f%n",
-                    myFirstOffer, myReservePrice);
+                    buyerStartPrice, buyerReservePrice);
             System.out.println("[AUTO] ========================================");
 
-            double firstOffer = strategy.nextOffer(ctx);
+            Offer firstOffer = strategy.nextOffer(ctx);
             autoCtx.put(sessionId, ctx.nextRound());
-            System.out.printf("[AUTO] Round 0 — Sending first offer: RM %.2f%n", firstOffer);
-            sendNegotiationAction(sessionId, "COUNTER", firstOffer, ACLMessage.PROPOSE);
+            System.out.printf("[AUTO] Round 0 — Sending first offer: RM %.2f%n", firstOffer.price());
+            sendNegotiationAction(sessionId, "COUNTER", firstOffer.price(), ACLMessage.PROPOSE);
 
         } else {
             SwingUtilities.invokeLater(() -> {
@@ -234,11 +236,11 @@ public class SimpleBuyerAgent extends Agent {
                     autoCtx.remove(sessionId); autoStrategy.remove(sessionId);
 
                 } else {
-                    double nextOffer = strategy.nextOffer(ctx);
+                    Offer nextOffer = strategy.nextOffer(ctx);
                     autoCtx.put(sessionId, ctx.nextRound());
                     System.out.printf("[AUTO] Round %d/%d — countering: RM %.2f%n",
-                            ctx.roundsElapsed, ctx.maxRounds, nextOffer);
-                    sendNegotiationAction(sessionId, "COUNTER", nextOffer, ACLMessage.PROPOSE);
+                            ctx.roundsElapsed, ctx.maxRounds, nextOffer.price());
+                    sendNegotiationAction(sessionId, "COUNTER", nextOffer.price(), ACLMessage.PROPOSE);
                 }
 
             } else if ("ACCEPT".equals(action)) {

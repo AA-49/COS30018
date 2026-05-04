@@ -143,13 +143,14 @@ public class SimpleDealerAgent extends Agent {
 
         if (autoNegotiate) {
             NegotiationStrategy strategy = new LinearStrategy();
-            // Dealer: initialOffer = askingPrice (high), reservePrice = minAcceptPrice
-            // (low)
-            NegotiationContext ctx = new NegotiationContext(askingPrice, minAcceptPrice, 10, 0);
+            // Dealer must negotiate from high -> low even if values are swapped.
+            double dealerStartPrice = Math.max(askingPrice, minAcceptPrice);
+            double dealerFloorPrice = Math.min(askingPrice, minAcceptPrice);
+            NegotiationContext ctx = new NegotiationContext(dealerStartPrice, dealerFloorPrice, 10, 0);
             autoStrategy.put(sessionId, strategy);
             autoCtx.put(sessionId, ctx);
             System.out.printf("[AUTO-DEALER] Strategy: %s | Ask: %.2f | Min: %.2f%n",
-                    strategy.getName(), askingPrice, minAcceptPrice);
+                    strategy.getName(), dealerStartPrice, dealerFloorPrice);
             return;
         }
 
@@ -239,7 +240,8 @@ public class SimpleDealerAgent extends Agent {
             String action, double buyerOffer) {
         if ("COUNTER".equals(action)) {
             // Compute the dealer's scheduled price at the current round
-            double schedulePrice = strategy.nextOffer(ctx);
+            Offer scheduleOffer = strategy.nextOffer(ctx);
+            double schedulePrice = scheduleOffer.price();
 
             if (buyerOffer >= schedulePrice) {
                 // Buyer is already offering at or above our scheduled ask — accept!

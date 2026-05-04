@@ -6,9 +6,9 @@ public final class BoulwareStrategy implements NegotiationStrategy {
     private static final double E = 0.2;
 
     @Override
-    public double nextOffer(NegotiationContext ctx) {
+    public Offer nextOffer(NegotiationContext ctx) {
         double ft = Math.pow(ctx.t(), 1.0 / E); // = t^5
-        return ctx.initialOffer + (ctx.reservePrice - ctx.initialOffer) * ft;
+        return LinearStrategy.interpolate(ctx.initialOfferBundle, ctx.reserveOfferBundle, ft);
     }
 
     @Override

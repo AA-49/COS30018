@@ -3,11 +3,16 @@ package AutoNego.strategy;
 // Stores information about the current negotiation details (e.g. max budget, time)
 public final class NegotiationContext {
 
-    // The agent's first offer
+    // Legacy price-only fields (kept for compatibility during transition).
     public final double initialOffer;
-
-    // The agent's absolute limit before walking away
     public final double reservePrice;
+
+    // Multi-attribute first and boundary offers.
+    public final Offer initialOfferBundle;
+    public final Offer reserveOfferBundle;
+
+    // Optional preference model for utility-driven decisions.
+    public final PreferenceProfile preferenceProfile;
 
     // Max number of negotiation rounds allowed
     public final int maxRounds;
@@ -19,6 +24,23 @@ public final class NegotiationContext {
             int maxRounds, int roundsElapsed) {
         this.initialOffer = initialOffer;
         this.reservePrice = reservePrice;
+        this.initialOfferBundle = Offer.priceOnly(initialOffer);
+        this.reserveOfferBundle = Offer.priceOnly(reservePrice);
+        this.preferenceProfile = null;
+        this.maxRounds = maxRounds;
+        this.roundsElapsed = roundsElapsed;
+    }
+
+    public NegotiationContext(Offer initialOfferBundle, Offer reserveOfferBundle,
+            PreferenceProfile preferenceProfile, int maxRounds, int roundsElapsed) {
+        if (initialOfferBundle == null || reserveOfferBundle == null) {
+            throw new IllegalArgumentException("Offer bundles must not be null");
+        }
+        this.initialOfferBundle = initialOfferBundle;
+        this.reserveOfferBundle = reserveOfferBundle;
+        this.initialOffer = initialOfferBundle.price();
+        this.reservePrice = reserveOfferBundle.price();
+        this.preferenceProfile = preferenceProfile;
         this.maxRounds = maxRounds;
         this.roundsElapsed = roundsElapsed;
     }
@@ -27,16 +49,25 @@ public final class NegotiationContext {
     public double t() {
         if (maxRounds <= 0)
             return 1.0;
-        return Math.min(1.0, (double) roundsElapsed / maxRounds);
+        // roundsElapsed starts at 0. We want the final scheduled round (maxRounds - 1)
+        // to map to t = 1.0 so the strategy can reach reserve/floor before exhaustion.
+        if (maxRounds == 1) {
+            return 1.0;
+        }
+        return Math.min(1.0, (double) roundsElapsed / (maxRounds - 1));
     }
 
     // Go to next round
     public NegotiationContext nextRound() {
-        return new NegotiationContext(initialOffer, reservePrice, maxRounds, roundsElapsed + 1);
+        if (preferenceProfile == null) {
+            return new NegotiationContext(initialOffer, reservePrice, maxRounds, roundsElapsed + 1);
+        }
+        return new NegotiationContext(initialOfferBundle, reserveOfferBundle, preferenceProfile, maxRounds,
+                roundsElapsed + 1);
     }
 
     // True when the agent has reached the maximum allowed rounds
     public boolean isExhausted() {
-        return roundsElapsed > maxRounds;
+        return roundsElapsed >= maxRounds;
     }
 }

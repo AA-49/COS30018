@@ -7,6 +7,9 @@ import AutoNego.DemoMessageCodec;
 import AutoNego.strategy.LinearStrategy;
 import AutoNego.strategy.NegotiationContext;
 import AutoNego.strategy.NegotiationStrategy;
+import AutoNego.strategy.Offer;
+import AutoNego.strategy.PreferenceProfile;
+import AutoNego.strategy.WeightedSumUtility;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -18,6 +21,8 @@ import jade.proto.SSIteratedContractNetResponder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,7 +36,9 @@ public class FipaBuyerAgent extends Agent {
     private double myFirstOffer = 0;
     private double myReservePrice = 0;
 
+    private final Map<BuyerMatchedCarsGui.CarListing, String> listingIdsByObject = new IdentityHashMap<>();
     private final Map<String, CompletableFuture<BuyerNegotiationGui>> negotiationWindows = new HashMap<>();
+    private final Map<String, CompletableFuture<BuyerNegotiationGui>> autoNegotiationWindows = new HashMap<>();
 
     // Auto-negotiate state
     private final Map<String, Boolean> autoModeByListingId = new HashMap<>();
@@ -72,6 +79,10 @@ public class FipaBuyerAgent extends Agent {
             if (fut != null)
                 fut.thenAccept(gui -> javax.swing.SwingUtilities.invokeLater(gui::dispose));
         }
+        for (CompletableFuture<BuyerNegotiationGui> fut : autoNegotiationWindows.values()) {
+            if (fut != null)
+                fut.thenAccept(gui -> javax.swing.SwingUtilities.invokeLater(gui::dispose));
+        }
     }
 
     private class MessageRouter extends CyclicBehaviour {
@@ -94,6 +105,8 @@ public class FipaBuyerAgent extends Agent {
                 handleSearchResults(msg);
             else if ("negotiation-start".equals(convId))
                 handleNegotiationStart(msg);
+            else if ("negotiation-update".equals(convId))
+                handleNegotiationUpdate(msg);
         }
     }
 
@@ -126,10 +139,13 @@ public class FipaBuyerAgent extends Agent {
     private void handleSearchResults(ACLMessage msg) {
         // get the list of matched cars
         List<BuyerMatchedCarsGui.CarListing> matches = new ArrayList<>();
+        listingIdsByObject.clear();
         for (String record : DemoMessageCodec.decodeRecords(msg.getContent())) {
             String[] parts = DemoMessageCodec.decodeFields(record, 5);
-            matches.add(new BuyerMatchedCarsGui.CarListing(
-                    parts[1], parts[2], Double.parseDouble(parts[3]), parts[4]));
+            BuyerMatchedCarsGui.CarListing listing = new BuyerMatchedCarsGui.CarListing(
+                    parts[1], parts[2], Double.parseDouble(parts[3]), parts[4]);
+            matches.add(listing);
+            listingIdsByObject.put(listing, parts[0]);
         }
 
         if (resultsGui == null) {
@@ -138,7 +154,15 @@ public class FipaBuyerAgent extends Agent {
                 // what to do when buyer want to negotiate
                 @Override
                 public void onNegotiate(BuyerMatchedCarsGui.CarListing listing, boolean autoNegotiate) {
-                    String listingId = getListingIdFromResults(msg, listing);
+                    String listingId = listingIdsByObject.get(listing);
+                    if (listingId == null) {
+                        javax.swing.SwingUtilities.invokeLater(() -> javax.swing.JOptionPane.showMessageDialog(
+                                resultsGui,
+                                "Could not identify the selected listing. Please refresh search results and try again.",
+                                "Listing Not Found",
+                                javax.swing.JOptionPane.WARNING_MESSAGE));
+                        return;
+                    }
                     autoModeByListingId.put(listingId, autoNegotiate);
 
                     ACLMessage req = new ACLMessage(ACLMessage.REQUEST);
@@ -163,14 +187,18 @@ public class FipaBuyerAgent extends Agent {
         inputGui.resetForm();
     }
 
-    // get listing id for selected cars
-    private String getListingIdFromResults(ACLMessage msg, BuyerMatchedCarsGui.CarListing listing) {
-        for (String record : DemoMessageCodec.decodeRecords(msg.getContent())) {
-            String[] parts = DemoMessageCodec.decodeFields(record, 5);
-            if (parts[4].equals(listing.dealerName) && parts[1].equals(listing.brand))
-                return parts[0];
+    private void handleNegotiationUpdate(ACLMessage msg) {
+        String[] parts = DemoMessageCodec.decodeFields(msg.getContent(), 4);
+        String status = parts[1];
+        String reason = parts[3];
+        if ("FAILED".equals(status)) {
+            javax.swing.SwingUtilities.invokeLater(() -> javax.swing.JOptionPane.showMessageDialog(
+                    resultsGui != null ? resultsGui : inputGui,
+                    reason,
+                    "Negotiation Unavailable",
+                    javax.swing.JOptionPane.INFORMATION_MESSAGE));
+            inputGui.resetForm();
         }
-        return "";
     }
 
     // what to do when broker reply with negotiation start
@@ -190,14 +218,40 @@ public class FipaBuyerAgent extends Agent {
         if (auto) {
             // Auto mode: strategy-driven without GUI.
             NegotiationStrategy strategy = new LinearStrategy();
-            // Buyer: initialOffer = first (low) offer, reserve = max willing to pay
-            NegotiationContext ctx = new NegotiationContext(myFirstOffer, myReservePrice, 10, 0);
+            // Buyer must concede upward in price (low -> high), even if inputs are swapped.
+            double buyerStartPrice = Math.min(myFirstOffer, myReservePrice);
+            double buyerReservePrice = Math.max(myFirstOffer, myReservePrice);
+            Offer initialOffer = buildBuyerInitialOffer(buyerStartPrice);
+            Offer reserveOffer = buildBuyerReserveOffer(buyerReservePrice);
+            PreferenceProfile profile = buildBuyerPreference(initialOffer, reserveOffer);
+            NegotiationContext ctx = new NegotiationContext(initialOffer, reserveOffer, profile, 10, 0);
             autoSessions.add(sessionId);
             sessionToAutoCtx.put(sessionId, ctx);
             sessionToAutoStrategy.put(sessionId, strategy);
+            CompletableFuture<BuyerNegotiationGui> guiFuture = new CompletableFuture<>();
+            autoNegotiationWindows.put(sessionId, guiFuture);
+
+            try {
+                javax.swing.SwingUtilities.invokeAndWait(() -> {
+                    BuyerMatchedCarsGui.CarListing listing = new BuyerMatchedCarsGui.CarListing(brand, type, initialPrice,
+                            dealerName);
+                    BuyerNegotiationGui gui = new BuyerNegotiationGui(this, listing);
+                    gui.display();
+                    gui.setWaitingState(true);
+                    gui.addSystemMessage("Auto-negotiation enabled.");
+                    gui.addBuyerOffer(initialOffer, "Auto Profile Start");
+                    gui.addSystemMessage("Reserve profile: " + reserveOffer.toDisplayString());
+                    guiFuture.complete(gui);
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("[AUTO-FIPA-BUYER] GUI initialization interrupted: " + e.getMessage());
+            } catch (InvocationTargetException e) {
+                System.err.println("[AUTO-FIPA-BUYER] GUI initialization failed: " + e.getCause());
+            }
 
             System.out.printf("[AUTO-FIPA-BUYER] Session %s | Strategy: %s | Start: %.2f | Reserve: %.2f%n",
-                    sessionId, strategy.getName(), myFirstOffer, myReservePrice);
+                    sessionId, strategy.getName(), buyerStartPrice, buyerReservePrice);
 
         } else {
             // ── Manual mode: GUI-driven ───────────────────────────────────
@@ -225,26 +279,19 @@ public class FipaBuyerAgent extends Agent {
             this.guiFuture = guiFuture;
         }
 
-        // handle cfp, basically offer from dealer
         @Override
         protected ACLMessage handleCfp(ACLMessage cfp) {
             try {
-                // wait for the GUI window to be opened and assigned to this session
                 BuyerNegotiationGui gui = guiFuture.get();
+                OfferMessage offerMsg = decodeOfferMessage(cfp.getContent());
+                Offer dealerOffer = offerMsg.offer;
 
-                String[] parts = DemoMessageCodec.decodeFields(cfp.getContent(), 3);
-                double dealerPrice = Double.parseDouble(parts[2]);
+                gui.addDealerOffer(dealerOffer, "Dealer Offer");
 
-                // Show the Dealer's price in our chat (this also unlocks the local Buyer input)
-                gui.addDealerOffer(dealerPrice, "Dealer's Ask");
-
-                // Wait for the human user to decide (Accept/Counter/Cancel)
                 CompletableFuture<Double> nextOffer = new CompletableFuture<>();
                 gui.setOnNegotiationListener(new BuyerNegotiationGui.OnNegotiationListener() {
                     @Override
                     public void onAccept(double currentOffer) {
-                        // the buyer agrees to dealer price and send that price as propose message as
-                        // part of IteratedContractNet
                         nextOffer.complete(currentOffer);
                     }
 
@@ -259,18 +306,16 @@ public class FipaBuyerAgent extends Agent {
                     }
                 });
 
-                // Blocks the JADE behavior thread until the user clicks a button
                 double amount = nextOffer.get();
                 if (amount < 0)
                     return cfp.createReply(ACLMessage.REFUSE);
 
-                // Show our own proposal in the chat
-                gui.addBuyerOffer(amount, "Your Proposal");
+                Offer buyerOffer = dealerOffer.withPrice(amount);
+                gui.addBuyerOffer(buyerOffer, "Your Proposal");
 
-                // send a message for counter offer
                 ACLMessage propose = cfp.createReply(ACLMessage.PROPOSE);
                 String sessionId = cfp.getConversationId();
-                propose.setContent(DemoMessageCodec.encodeFields(sessionId, "PROPOSE", Double.toString(amount)));
+                propose.setContent(encodeOfferPayload(sessionId, "PROPOSE", buyerOffer));
                 return propose;
 
             } catch (Exception e) {
@@ -279,12 +324,11 @@ public class FipaBuyerAgent extends Agent {
             }
         }
 
-        // handle when dealer accept proposal
         @Override
         protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) {
             guiFuture.thenAccept(gui -> {
-                String[] parts = DemoMessageCodec.decodeFields(accept.getContent(), 3);
-                double finalPrice = Double.parseDouble(parts[2]);
+                OfferMessage accepted = decodeOfferMessage(accept.getContent());
+                double finalPrice = accepted.offer.price();
                 gui.addSystemMessage("Dealer accepted your offer of RM " + String.format("%,.2f", finalPrice));
                 gui.lockNegotiation(true);
             });
@@ -293,7 +337,6 @@ public class FipaBuyerAgent extends Agent {
             return inform;
         }
 
-        // handle when dealer reject proposal
         @Override
         protected void handleRejectProposal(ACLMessage cfp, ACLMessage propose, ACLMessage reject) {
             guiFuture.thenAccept(gui -> gui.addSystemMessage("Dealer rejected. Waiting for counter-offer..."));
@@ -311,8 +354,12 @@ public class FipaBuyerAgent extends Agent {
 
         @Override
         protected ACLMessage handleCfp(ACLMessage cfp) {
-            String[] parts = DemoMessageCodec.decodeFields(cfp.getContent(), 3);
-            double dealerPrice = Double.parseDouble(parts[2]);
+            OfferMessage offerMsg = decodeOfferMessage(cfp.getContent());
+            Offer dealerOffer = offerMsg.offer;
+            CompletableFuture<BuyerNegotiationGui> guiFuture = autoNegotiationWindows.get(sessionId);
+            if (guiFuture != null) {
+                guiFuture.thenAccept(gui -> gui.addDealerOffer(dealerOffer, "Dealer Offer"));
+            }
 
             NegotiationContext ctx = sessionToAutoCtx.get(sessionId);
             NegotiationStrategy strategy = sessionToAutoStrategy.get(sessionId);
@@ -321,37 +368,66 @@ public class FipaBuyerAgent extends Agent {
                 return cfp.createReply(ACLMessage.REFUSE);
             }
 
-            if (dealerPrice <= ctx.reservePrice) {
-                System.out.printf("[AUTO-FIPA-BUYER] Dealer %.2f <= reserve %.2f — ACCEPTING%n",
-                        dealerPrice, ctx.reservePrice);
+            double offerUtility = utilityOf(ctx, dealerOffer);
+            double acceptanceThreshold = thresholdOf(ctx);
+            if (offerUtility >= acceptanceThreshold) {
+                System.out.printf("[AUTO-FIPA-BUYER] Utility %.3f >= threshold %.3f - ACCEPTING%n",
+                        offerUtility, acceptanceThreshold);
+                if (guiFuture != null) {
+                    guiFuture.thenAccept(gui -> {
+                        gui.addBuyerOffer(dealerOffer, "Auto Accept");
+                        gui.addSystemMessage(String.format("Accepted at utility %.3f (threshold %.3f).", offerUtility,
+                                acceptanceThreshold));
+                    });
+                }
                 cleanupAutoSession();
                 ACLMessage propose = cfp.createReply(ACLMessage.PROPOSE);
-                propose.setContent(DemoMessageCodec.encodeFields(sessionId, "PROPOSE", Double.toString(dealerPrice)));
+                propose.setContent(encodeOfferPayload(sessionId, "PROPOSE", dealerOffer));
                 return propose;
             }
 
             if (ctx.isExhausted()) {
-                System.out.println("[AUTO-FIPA-BUYER] Max rounds reached — REFUSING");
+                System.out.println("[AUTO-FIPA-BUYER] Max rounds reached - REFUSING");
+                if (guiFuture != null) {
+                    guiFuture.thenAccept(gui -> {
+                        gui.addSystemMessage("Auto-negotiation ended: round limit reached.");
+                        gui.lockNegotiation(false);
+                    });
+                }
                 cleanupAutoSession();
                 return cfp.createReply(ACLMessage.REFUSE);
             }
 
-            // Counter with the next scheduled offer
-            double myOffer = strategy.nextOffer(ctx);
-            System.out.printf("[AUTO-FIPA-BUYER] Round %d/%d — countering with RM %.2f%n",
-                    ctx.roundsElapsed, ctx.maxRounds, myOffer);
+            // Price-first behavior: buyer adjusts price by strategy but keeps dealer's latest non-price package.
+            Offer scheduledBuyerOffer = strategy.nextOffer(ctx);
+            Offer myOffer = dealerOffer.withPrice(scheduledBuyerOffer.price());
+            System.out.printf("[AUTO-FIPA-BUYER] Round %d/%d - countering with RM %.2f%n",
+                    ctx.roundsElapsed, ctx.maxRounds, myOffer.price());
             sessionToAutoCtx.put(sessionId, ctx.nextRound());
+            if (guiFuture != null) {
+                guiFuture.thenAccept(gui -> {
+                    gui.addBuyerOffer(myOffer, "Auto Counter");
+                    gui.setWaitingState(true);
+                });
+            }
 
             ACLMessage propose = cfp.createReply(ACLMessage.PROPOSE);
-            propose.setContent(DemoMessageCodec.encodeFields(sessionId, "PROPOSE", Double.toString(myOffer)));
+            propose.setContent(encodeOfferPayload(sessionId, "PROPOSE", myOffer));
             return propose;
         }
 
         @Override
         protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) {
-            String[] parts = DemoMessageCodec.decodeFields(accept.getContent(), 3);
-            double finalPrice = Double.parseDouble(parts[2]);
+            OfferMessage accepted = decodeOfferMessage(accept.getContent());
+            double finalPrice = accepted.offer.price();
             System.out.printf("[AUTO-FIPA-BUYER] Deal accepted! Final price: RM %.2f%n", finalPrice);
+            CompletableFuture<BuyerNegotiationGui> guiFuture = autoNegotiationWindows.get(sessionId);
+            if (guiFuture != null) {
+                guiFuture.thenAccept(gui -> {
+                    gui.addSystemMessage("Dealer confirmed the deal.");
+                    gui.lockNegotiation(true);
+                });
+            }
             cleanupAutoSession();
             ACLMessage inform = accept.createReply(ACLMessage.INFORM);
             inform.setContent("Deal finalized");
@@ -360,14 +436,85 @@ public class FipaBuyerAgent extends Agent {
 
         @Override
         protected void handleRejectProposal(ACLMessage cfp, ACLMessage propose, ACLMessage reject) {
-            // Dealer will send a counter-CFP; handleCfp will be invoked again automatically
-            System.out.println("[AUTO-FIPA-BUYER] Proposal rejected — waiting for dealer counter...");
+            System.out.println("[AUTO-FIPA-BUYER] Proposal rejected - waiting for dealer counter...");
         }
 
         private void cleanupAutoSession() {
             autoSessions.remove(sessionId);
             sessionToAutoCtx.remove(sessionId);
             sessionToAutoStrategy.remove(sessionId);
+            autoNegotiationWindows.remove(sessionId);
         }
     }
+    private PreferenceProfile buildBuyerPreference(Offer initialOffer, Offer reserveOffer) {
+        double priceBest = Math.min(initialOffer.price(), reserveOffer.price());
+        double priceWorst = Math.max(initialOffer.price(), reserveOffer.price());
+        int warrantyBest = Math.max(initialOffer.warrantyMonths(), reserveOffer.warrantyMonths());
+        int warrantyWorst = Math.min(initialOffer.warrantyMonths(), reserveOffer.warrantyMonths());
+        int insuranceBest = Math.max(initialOffer.insuranceIncludedMonths(), reserveOffer.insuranceIncludedMonths());
+        int insuranceWorst = Math.min(initialOffer.insuranceIncludedMonths(), reserveOffer.insuranceIncludedMonths());
+        int serviceBest = Math.max(initialOffer.servicePackageLevel(), reserveOffer.servicePackageLevel());
+        int serviceWorst = Math.min(initialOffer.servicePackageLevel(), reserveOffer.servicePackageLevel());
+        return new PreferenceProfile(
+                new WeightedSumUtility.Builder()
+                        .price(0.60, priceBest, priceWorst)
+                        .warrantyMonths(0.15, warrantyBest, warrantyWorst)
+                        .insuranceIncludedMonths(0.15, insuranceBest, insuranceWorst)
+                        .servicePackageLevel(0.10, serviceBest, serviceWorst)
+                        .build(),
+                0.95,
+                0.60);
+    }
+
+    private Offer buildBuyerInitialOffer(double firstOfferPrice) {
+        // Buyer starts strict on non-price terms.
+        return new Offer(firstOfferPrice, 24, 24, 3);
+    }
+
+    private Offer buildBuyerReserveOffer(double reservePrice) {
+        // Buyer can relax non-price requirements toward deadline.
+        return new Offer(reservePrice, 6, 6, 1);
+    }
+
+    private double utilityOf(NegotiationContext ctx, Offer offer) {
+        if (ctx.preferenceProfile != null) {
+            return ctx.preferenceProfile.score(offer);
+        }
+        return new WeightedSumUtility.Builder()
+                .price(1.0, Math.min(ctx.initialOffer, ctx.reservePrice), Math.max(ctx.initialOffer, ctx.reservePrice))
+                .build()
+                .score(offer);
+    }
+
+    private double thresholdOf(NegotiationContext ctx) {
+        if (ctx.preferenceProfile != null) {
+            return ctx.preferenceProfile.thresholdAt(ctx.t());
+        }
+        return 0.0;
+    }
+
+    private String encodeOfferPayload(String sessionId, String action, Offer offer) {
+        return DemoMessageCodec.encodeFields(
+                sessionId,
+                action,
+                Double.toString(offer.price()),
+                Integer.toString(offer.warrantyMonths()),
+                Integer.toString(offer.insuranceIncludedMonths()),
+                Integer.toString(offer.servicePackageLevel()));
+    }
+
+    private OfferMessage decodeOfferMessage(String payload) {
+        String[] parts = DemoMessageCodec.decodeFields(payload, 3);
+        String sessionId = parts[0];
+        String action = parts[1];
+        double price = Double.parseDouble(parts[2]);
+        int warrantyMonths = parts.length > 3 ? Integer.parseInt(parts[3]) : 0;
+        int insuranceIncludedMonths = parts.length > 4 ? Integer.parseInt(parts[4]) : 0;
+        int servicePackageLevel = parts.length > 5 ? (int) Math.round(Double.parseDouble(parts[5])) : 0;
+        return new OfferMessage(sessionId, action, new Offer(price, warrantyMonths, insuranceIncludedMonths, servicePackageLevel));
+    }
+
+    private record OfferMessage(String sessionId, String action, Offer offer) {
+    }
 }
+

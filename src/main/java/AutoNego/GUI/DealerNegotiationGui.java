@@ -1,5 +1,6 @@
 package AutoNego.GUI;
 
+import AutoNego.strategy.Offer;
 import jade.core.Agent;
 import javax.swing.*;
 import javax.swing.border.*;
@@ -277,6 +278,14 @@ public class DealerNegotiationGui extends JFrame {
     /** Reflected in chat when dealer sends a counter */
     public void addDealerOffer(double amount, String label) {
         SwingUtilities.invokeLater(() -> addBubble(amount, label, true));
+    }
+
+    public void addBuyerOffer(Offer offer, String label) {
+        addBuyerOffer(offer.price(), label + " | " + offer.toDisplayString());
+    }
+
+    public void addDealerOffer(Offer offer, String label) {
+        addDealerOffer(offer.price(), label + " | " + offer.toDisplayString());
     }
 
     /** System/status messages */

@@ -2,7 +2,7 @@ package AutoNego.strategy;
 
 public interface NegotiationStrategy {
 
-    double nextOffer(NegotiationContext ctx);
+    Offer nextOffer(NegotiationContext ctx);
 
     String getName();
 }
