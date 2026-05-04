@@ -8,6 +8,7 @@ import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ public class FipaBrokerAgent extends Agent {
     private final AtomicInteger listingSequence = new AtomicInteger(1);
     private final AtomicInteger sessionSequence = new AtomicInteger(1);
     private final Map<String, ListingRecord> listings = new LinkedHashMap<>();
+    private final Map<String, String> buyerTacticByListingBuyer = new HashMap<>();
     private double totalCommissions = 0.0;
 
     private BrokerDashboardGui dashboard;
@@ -73,8 +75,10 @@ public class FipaBrokerAgent extends Agent {
             String listingId = "listing-" + listingSequence.getAndIncrement();
             double price = Double.parseDouble(parts[2]);
             double minAcceptPrice = Double.parseDouble(parts[3]);
+            String dealerTactic = parts.length >= 5 ? parts[4].trim() : "none";
 
-            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price, minAcceptPrice);
+            ListingRecord listing = new ListingRecord(listingId, dealerName, parts[0], parts[1], price, minAcceptPrice,
+                    dealerTactic);
             listings.put(listingId, listing);
             dashboard.addListing(new BrokerDashboardGui.DealerListing(
                     listingId,
@@ -114,6 +118,10 @@ public class FipaBrokerAgent extends Agent {
         send(reply);
     }
 
+    private static String listingBuyerKey(String listingId, String buyerName) {
+        return listingId + "|" + buyerName;
+    }
+
     // what to do when buyer want to negotiate
     private void handleNegotiationRequest(ACLMessage message) {
         String[] parts = DemoMessageCodec.decodeFields(message.getContent(), 1);
@@ -124,7 +132,8 @@ public class FipaBrokerAgent extends Agent {
 
         String buyerName = message.getSender().getLocalName();
         double buyerFirstOffer = listing.price;
-        
+        String buyerTactic = parts.length >= 4 ? parts[3].trim() : "none";
+
         if (parts.length >= 3) {
             buyerFirstOffer = Double.parseDouble(parts[1]);
             double buyerReservePrice = Double.parseDouble(parts[2]);
@@ -149,6 +158,8 @@ public class FipaBrokerAgent extends Agent {
             }
         }
 
+        buyerTacticByListingBuyer.put(listingBuyerKey(listing.id, buyerName), buyerTactic);
+
         ACLMessage notifyDealer = new ACLMessage(ACLMessage.INFORM);
         notifyDealer.addReceiver(new AID(listing.dealerName, AID.ISLOCALNAME));
         notifyDealer.setConversationId("buyer-interest");
@@ -172,6 +183,13 @@ public class FipaBrokerAgent extends Agent {
         if (message.getPerformative() == ACLMessage.AGREE) {
             String sessionId = "session-" + sessionSequence.getAndIncrement();
 
+            String buyerTactic = buyerTacticByListingBuyer.remove(listingBuyerKey(listing.id, buyerName));
+            if (buyerTactic == null) {
+                buyerTactic = "none";
+            }
+            String dealerTactic = listing.dealerTactic != null && !listing.dealerTactic.isBlank()
+                    ? listing.dealerTactic : "none";
+
             // Notify both to start negotiation
             // In this FIPA version, Dealer will be the Initiator (CFP)
             ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
@@ -179,7 +197,7 @@ public class FipaBrokerAgent extends Agent {
             toBuyer.setConversationId("negotiation-start");
             toBuyer.setContent(DemoMessageCodec.encodeFields(
                     sessionId, listing.id, listing.brand, listing.type, Double.toString(listing.price),
-                    listing.dealerName));
+                    listing.dealerName, buyerTactic, dealerTactic));
             send(toBuyer);
 
             ACLMessage toDealer = new ACLMessage(ACLMessage.INFORM);
@@ -188,11 +206,12 @@ public class FipaBrokerAgent extends Agent {
             toDealer.setContent(DemoMessageCodec.encodeFields(
                     sessionId, buyerName, listing.brand, listing.type,
                     Double.toString(listing.price), listing.id,
-                    Double.toString(listing.minAcceptPrice)));
+                    Double.toString(listing.minAcceptPrice), buyerTactic, dealerTactic));
             send(toDealer);
             System.out.println("Broker: Started negotiation session " + sessionId + " between " + buyerName + " and "
                     + listing.dealerName);
         } else {
+            buyerTacticByListingBuyer.remove(listingBuyerKey(listing.id, buyerName));
             ACLMessage toBuyer = new ACLMessage(ACLMessage.INFORM);
             toBuyer.addReceiver(new AID(buyerName, AID.ISLOCALNAME));
             toBuyer.setConversationId("negotiation-update");
@@ -236,6 +255,6 @@ public class FipaBrokerAgent extends Agent {
     }
 
     private record ListingRecord(String id, String dealerName, String brand, String type, double price,
-            double minAcceptPrice) {
+            double minAcceptPrice, String dealerTactic) {
     }
 }

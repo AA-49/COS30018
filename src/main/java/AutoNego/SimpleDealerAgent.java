@@ -52,14 +52,15 @@ public class SimpleDealerAgent extends Agent {
         });
     }
 
-    private void submitListingsToBroker(List<DealerInputGui.CarListing> listings) {
+    private void submitListingsToBroker(List<DealerInputGui.CarListing> listings, String dealerTactic) {
         List<String> records = new ArrayList<>();
         for (DealerInputGui.CarListing listing : listings) {
             records.add(DemoMessageCodec.encodeFields(
                     listing.brand,
                     listing.type,
                     Double.toString(listing.price),
-                    Double.toString(listing.minAcceptPrice)));
+                    Double.toString(listing.minAcceptPrice),
+                    dealerTactic == null || dealerTactic.isBlank() ? "none" : dealerTactic));
         }
 
         ACLMessage message = new ACLMessage(ACLMessage.INFORM);
@@ -154,7 +155,9 @@ public class SimpleDealerAgent extends Agent {
         }
 
         SwingUtilities.invokeLater(() -> {
-            DealerNegotiationGui gui = new DealerNegotiationGui(this, buyerName, brand, type, askingPrice);
+            DealerNegotiationGui gui = new DealerNegotiationGui(this, buyerName, brand, type, askingPrice,
+                    minAcceptPrice);
+            gui.configureSuggestionRounds(10);
             gui.setOnNegotiationListener(new DealerNegotiationGui.OnNegotiationListener() {
                 @Override
                 public void onAccept(double currentOffer) {

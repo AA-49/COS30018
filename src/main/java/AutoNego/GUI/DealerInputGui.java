@@ -35,7 +35,7 @@ public class DealerInputGui extends JFrame {
     }
 
     public interface OnListingListener {
-        void onSubmitListings(List<CarListing> listings);
+        void onSubmitListings(List<CarListing> listings, String dealerTactic);
     }
 
     // ── Fields ────────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ public class DealerInputGui extends JFrame {
     private JTextField typeField;
     private JTextField priceField;
     private JTextField minPriceField;
+    private JComboBox<String> dealerTacticCombo;
     private DefaultTableModel tableModel;
     private final List<CarListing> listings = new ArrayList<>();
 
@@ -276,6 +277,19 @@ public class DealerInputGui extends JFrame {
         hint.setFont(new Font("Segoe UI", Font.ITALIC, 11));
         hint.setForeground(MUTED);
 
+        dealerTacticCombo = new JComboBox<>(new String[]{"none", "Linear", "Boulware", "Conceder"});
+        dealerTacticCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        dealerTacticCombo.setBackground(FIELD_BG);
+        dealerTacticCombo.setForeground(TEXT);
+
+        JPanel tacticRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        tacticRow.setOpaque(false);
+        JLabel tacticLbl = new JLabel("Dealer tactic (auto-negotiate):");
+        tacticLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        tacticLbl.setForeground(TEXT);
+        tacticRow.add(tacticLbl);
+        tacticRow.add(dealerTacticCombo);
+
         JButton submitBtn = new JButton("✓  Send Listings to Broker");
         submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
         submitBtn.setBackground(SUCCESS);
@@ -286,8 +300,13 @@ public class DealerInputGui extends JFrame {
         submitBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         submitBtn.addActionListener(e -> handleSubmit());
 
-        footer.add(hint,      BorderLayout.WEST);
-        footer.add(submitBtn, BorderLayout.EAST);
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.setOpaque(false);
+        bottom.add(hint, BorderLayout.WEST);
+        bottom.add(submitBtn, BorderLayout.EAST);
+
+        footer.add(tacticRow, BorderLayout.NORTH);
+        footer.add(bottom, BorderLayout.SOUTH);
 
         return footer;
     }
@@ -374,7 +393,7 @@ public class DealerInputGui extends JFrame {
             return;
         }
         if (listingListener != null) {
-            listingListener.onSubmitListings(new ArrayList<>(listings));
+            listingListener.onSubmitListings(new ArrayList<>(listings), String.valueOf(dealerTacticCombo.getSelectedItem()));
         }
     }
 

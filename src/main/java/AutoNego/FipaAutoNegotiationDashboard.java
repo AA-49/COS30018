@@ -1,5 +1,10 @@
 package AutoNego;
 
+import AutoNego.io.NegotiationPlanCsvReader;
+import AutoNego.io.NegotiationSessionExport;
+import AutoNego.strategy.NegotiationContext;
+import AutoNego.strategy.NegotiationStrategy;
+import AutoNego.strategy.NegotiationStrategyFactory;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.Profile;
@@ -12,8 +17,10 @@ import jade.wrapper.ContainerController;
 import jade.wrapper.StaleProxyException;
 
 import javax.swing.BorderFactory;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -35,7 +42,11 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
+import java.io.OutputStreamWriter;
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -73,6 +84,9 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
     private final JButton addCarButton = new JButton("Add Car");
     private final JButton editTacticButton = new JButton("Edit Tactic");
     private final JButton launchFipaLauncherButton = new JButton("Launch FIPA Launcher");
+    private final JButton importDealersCsvButton = new JButton("Import Dealers CSV…");
+    private final JButton importBuyersCsvButton = new JButton("Import Buyers CSV…");
+    private final JButton exportTrainingCsvButton = new JButton("Export Training CSV…");
     private final Map<String, String> listingSessionIds = new HashMap<>();
     private JTable dealerTable;
     private JTable buyerTable;
@@ -119,12 +133,21 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         actionPanel.add(addBuyerButton);
         actionPanel.add(editTacticButton);
         actionPanel.add(launchFipaLauncherButton);
+        importDealersCsvButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        importBuyersCsvButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        exportTrainingCsvButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        actionPanel.add(importDealersCsvButton);
+        actionPanel.add(importBuyersCsvButton);
+        actionPanel.add(exportTrainingCsvButton);
 
         addDealerButton.addActionListener(event -> addDealer());
         addBuyerButton.addActionListener(event -> addBuyer());
         addCarButton.addActionListener(event -> addCarToDealer());
         editTacticButton.addActionListener(event -> editSelectedAgent());
         launchFipaLauncherButton.addActionListener(event -> launchFipaLauncher());
+        importDealersCsvButton.addActionListener(event -> importDealersCsv());
+        importBuyersCsvButton.addActionListener(event -> importBuyersCsv());
+        exportTrainingCsvButton.addActionListener(event -> exportTrainingCsv());
 
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(header, BorderLayout.NORTH);
@@ -335,28 +358,185 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
     private void editSelectedAgent() {
         int dealerRow = dealerTable.getSelectedRow();
         int buyerRow = buyerTable.getSelectedRow();
+        String[] tactics = {"none", "Linear", "Boulware", "Conceder"};
         if (dealerRow >= 0) {
             DealerProfile dealer = getDealerProfileByRow(dealerRow);
             if (dealer == null) {
                 return;
             }
-            String tactic = JOptionPane.showInputDialog(this, "Dealer tactic:", dealer.variables.getOrDefault("tactic", "none"));
-            if (tactic != null) {
-                dealer.variables.put("tactic", tactic.isBlank() ? "none" : tactic);
+            JComboBox<String> combo = new JComboBox<>(tactics);
+            combo.setSelectedItem(dealer.variables.getOrDefault("tactic", "none"));
+            int ok = JOptionPane.showConfirmDialog(this, combo, "Dealer tactic", JOptionPane.OK_CANCEL_OPTION);
+            if (ok == JOptionPane.OK_OPTION) {
+                dealer.variables.put("tactic", String.valueOf(combo.getSelectedItem()));
             }
             refreshPlanTables();
             return;
         }
         if (buyerRow >= 0) {
             BuyerProfile buyer = configuredBuyers.get(buyerRow);
-            String tactic = JOptionPane.showInputDialog(this, "Buyer tactic:", buyer.variables.getOrDefault("tactic", "none"));
-            if (tactic != null) {
-                buyer.variables.put("tactic", tactic.isBlank() ? "none" : tactic);
+            JComboBox<String> combo = new JComboBox<>(tactics);
+            combo.setSelectedItem(buyer.variables.getOrDefault("tactic", "none"));
+            int ok = JOptionPane.showConfirmDialog(this, combo, "Buyer tactic", JOptionPane.OK_CANCEL_OPTION);
+            if (ok == JOptionPane.OK_OPTION) {
+                buyer.variables.put("tactic", String.valueOf(combo.getSelectedItem()));
             }
             refreshPlanTables();
             return;
         }
         JOptionPane.showMessageDialog(this, "Select a dealer or buyer row to edit its tactics.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void importDealersCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path path = chooser.getSelectedFile().toPath();
+        List<String> errors = new ArrayList<>();
+        try {
+            List<NegotiationPlanCsvReader.DealerRow> rows = NegotiationPlanCsvReader.readDealers(path, errors);
+            if (rows.isEmpty() && errors.isEmpty()) {
+                errors.add("No data rows found.");
+            }
+            LinkedHashMap<String, List<NegotiationPlanCsvReader.DealerRow>> groups = new LinkedHashMap<>();
+            for (NegotiationPlanCsvReader.DealerRow row : rows) {
+                String key = row.agentName.trim().toLowerCase(Locale.ROOT);
+                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(row);
+            }
+            List<DealerProfile> imported = new ArrayList<>();
+            for (List<NegotiationPlanCsvReader.DealerRow> group : groups.values()) {
+                NegotiationPlanCsvReader.DealerRow first = group.get(0);
+                NegotiationPlanCsvReader.DealerRow last = group.get(group.size() - 1);
+                List<CarSpec> cars = new ArrayList<>();
+                for (NegotiationPlanCsvReader.DealerRow r : group) {
+                    cars.add(new CarSpec(r.brand, r.type, r.sellingPrice, r.minimumPrice));
+                }
+                Map<String, String> vars = new HashMap<>();
+                vars.put("tactic", tacticLabelFromKey(last.tacticKey));
+                imported.add(new DealerProfile(first.agentName.trim(), 500, cars, vars));
+            }
+            configuredDealers.clear();
+            configuredDealers.addAll(imported);
+            refreshPlanTables();
+            appendLog("Imported " + imported.size() + " dealer agent(s) from CSV.");
+            if (!errors.isEmpty()) {
+                appendLog("CSV warnings: " + String.join("; ", errors));
+                JOptionPane.showMessageDialog(this, String.join("\n", errors), "Import warnings", JOptionPane.WARNING_MESSAGE);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "Import failed", JOptionPane.ERROR_MESSAGE);
+            appendLog("Import dealers CSV failed: " + e.getMessage());
+        }
+    }
+
+    private void importBuyersCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path path = chooser.getSelectedFile().toPath();
+        List<String> errors = new ArrayList<>();
+        try {
+            List<NegotiationPlanCsvReader.BuyerRow> rows = NegotiationPlanCsvReader.readBuyers(path, errors);
+            if (rows.isEmpty() && errors.isEmpty()) {
+                errors.add("No data rows found.");
+            }
+            List<BuyerProfile> imported = new ArrayList<>();
+            for (NegotiationPlanCsvReader.BuyerRow r : rows) {
+                Map<String, String> vars = new HashMap<>();
+                vars.put("tactic", tacticLabelFromKey(r.tacticKey));
+                imported.add(new BuyerProfile(r.agentName.trim(), r.brand, r.type, r.startingPrice, r.maximumPrice, 0, 1500, vars));
+            }
+            configuredBuyers.clear();
+            configuredBuyers.addAll(imported);
+            refreshPlanTables();
+            appendLog("Imported " + imported.size() + " buyer agent(s) from CSV.");
+            if (!errors.isEmpty()) {
+                appendLog("CSV warnings: " + String.join("; ", errors));
+                JOptionPane.showMessageDialog(this, String.join("\n", errors), "Import warnings", JOptionPane.WARNING_MESSAGE);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "Import failed", JOptionPane.ERROR_MESSAGE);
+            appendLog("Import buyers CSV failed: " + e.getMessage());
+        }
+    }
+
+    private static String tacticLabelFromKey(String key) {
+        if ("boulware".equals(key)) {
+            return "Boulware";
+        }
+        if ("conceder".equals(key)) {
+            return "Conceder";
+        }
+        if ("none".equals(key)) {
+            return "none";
+        }
+        return "Linear";
+    }
+
+    private void exportTrainingCsv() {
+        List<NegotiationSessionExport.SessionSnapshot> snapshots = buildExportSnapshots();
+        if (snapshots.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No completed sessions with offers to export.", "Export", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new java.io.File("negotiation_export"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        java.io.File base = chooser.getSelectedFile();
+        String baseName = base.getName().replaceAll("\\.csv$", "");
+        java.io.File parent = base.getParentFile();
+        Path dir = parent != null ? parent.toPath() : Path.of(".");
+        Path stepsPath = dir.resolve(baseName + "_steps.csv");
+        Path summaryPath = dir.resolve(baseName + "_sessions.csv");
+        try {
+            try (OutputStreamWriter w = new OutputStreamWriter(Files.newOutputStream(stepsPath), StandardCharsets.UTF_8)) {
+                NegotiationSessionExport.writeLongCsv(w, snapshots);
+            }
+            try (OutputStreamWriter w = new OutputStreamWriter(Files.newOutputStream(summaryPath), StandardCharsets.UTF_8)) {
+                NegotiationSessionExport.writeSummaryCsv(w, snapshots);
+            }
+            appendLog("Exported training CSV: " + stepsPath.getFileName() + ", " + summaryPath.getFileName());
+            JOptionPane.showMessageDialog(this, "Wrote:\n" + stepsPath + "\n" + summaryPath, "Export complete", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "Export failed", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private List<NegotiationSessionExport.SessionSnapshot> buildExportSnapshots() {
+        List<NegotiationSessionExport.SessionSnapshot> list = new ArrayList<>();
+        for (SessionView s : sessions.values()) {
+            if (s.points.isEmpty() || s.result == null || s.result.isBlank()) {
+                continue;
+            }
+            List<NegotiationSessionExport.OfferStep> steps = new ArrayList<>();
+            for (OfferPoint p : s.points) {
+                steps.add(new NegotiationSessionExport.OfferStep(p.sequence, p.actor, p.amount, p.note));
+            }
+            list.add(new NegotiationSessionExport.SessionSnapshot(
+                    s.sessionId,
+                    s.buyer,
+                    s.dealer,
+                    s.brand,
+                    s.type,
+                    s.buyerStart,
+                    s.buyerMax,
+                    s.sellerAsk,
+                    s.sellerMin,
+                    s.buyerTactic,
+                    s.dealerTactic,
+                    s.result,
+                    s.finalPrice,
+                    s.resultRounds,
+                    s.dealInsideAgreement,
+                    steps));
+        }
+        return list;
     }
 
     private void launchFipaLauncher() {
@@ -539,6 +719,7 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
             if (session != null) {
                 session.result = result;
                 session.finalPrice = finalPrice;
+                session.resultRounds = rounds;
                 if ("DEAL".equals(result)) {
                     session.dealInsideAgreement = isInAgreementRange(
                             finalPrice,
@@ -1109,7 +1290,7 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         }
 
         private void handleNegotiationStart(ACLMessage message) {
-            String[] parts = MessageCodec.decodeFields(message.getContent(), 9);
+            String[] parts = MessageCodec.decodeFields(message.getContent(), 11);
             String sessionId = parts[0];
             String buyerName = parts[1];
             double askingPrice = Double.parseDouble(parts[4]);
@@ -1117,6 +1298,9 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
             double minimumPrice = Double.parseDouble(parts[6]);
             double buyerStart = Double.parseDouble(parts[7]);
             double buyerMax = Double.parseDouble(parts[8]);
+            Map<String, String> dealerVars = decodeProperties(parts.length > 10 ? parts[10] : "");
+            NegotiationStrategy dealerStrategy = NegotiationStrategyFactory.fromTacticName(
+                    dealerVars.getOrDefault("tactic", profile.variables.getOrDefault("tactic", "none")));
 
             DealerSession session = new DealerSession(
                     sessionId,
@@ -1125,7 +1309,8 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
                     askingPrice,
                     minimumPrice,
                     buyerStart,
-                    buyerMax
+                    buyerMax,
+                    dealerStrategy
             );
             sessions.put(sessionId, session);
 
@@ -1215,8 +1400,10 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         }
 
         private double nextDealerPrice(DealerSession session) {
-            double t = Math.min(1.0, (double) session.dealerOffersSent / session.maxRounds);
-            return session.askingPrice + (session.minimumPrice - session.askingPrice) * t;
+            int elapsed = Math.max(0, session.dealerOffersSent - 1);
+            NegotiationContext ctx = new NegotiationContext(session.askingPrice, session.minimumPrice,
+                    session.maxRounds, elapsed);
+            return session.dealerStrategy.nextOffer(ctx);
         }
 
         private void reportDeal(DealerSession session, double finalPrice) {
@@ -1342,18 +1529,22 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         }
 
         private void handleNegotiationStart(ACLMessage message) {
-            String[] parts = MessageCodec.decodeFields(message.getContent(), 7);
+            String[] parts = MessageCodec.decodeFields(message.getContent(), 9);
             String sessionId = parts[0];
             String dealerName = parts[5];
             double sellerAsk = Double.parseDouble(parts[4]);
             double sellerMin = Double.parseDouble(parts[6]);
+            Map<String, String> buyerVarsMsg = decodeProperties(parts.length > 7 ? parts[7] : "");
+            String tactic = buyerVarsMsg.getOrDefault("tactic", profile.variables.getOrDefault("tactic", "none"));
+            NegotiationStrategy buyerStrategy = NegotiationStrategyFactory.fromTacticName(tactic);
             BuyerSession session = new BuyerSession(
                     sessionId,
                     dealerName,
                     profile.startingPrice,
                     profile.maximumPrice,
                     sellerAsk,
-                    sellerMin
+                    sellerMin,
+                    buyerStrategy
             );
             sessions.put(sessionId, session);
         }
@@ -1419,8 +1610,9 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         }
 
         private double nextBuyerPrice(BuyerSession session) {
-            double t = Math.min(1.0, (double) session.buyerOffersSent / session.maxRounds);
-            return session.startingPrice + (session.maximumPrice - session.startingPrice) * t;
+            NegotiationContext ctx = new NegotiationContext(session.startingPrice, session.maximumPrice,
+                    session.maxRounds, session.buyerOffersSent);
+            return session.buyerStrategy.nextOffer(ctx);
         }
     }
 
@@ -1743,9 +1935,11 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         private final int maxRounds = 6;
         private int dealerOffersSent;
         private int events;
+        private final NegotiationStrategy dealerStrategy;
 
         private DealerSession(String sessionId, String listingId, String buyerName,
-                              double askingPrice, double minimumPrice, double buyerStart, double buyerMax) {
+                              double askingPrice, double minimumPrice, double buyerStart, double buyerMax,
+                              NegotiationStrategy dealerStrategy) {
             this.sessionId = sessionId;
             this.listingId = listingId;
             this.buyerName = buyerName;
@@ -1753,6 +1947,7 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
             this.minimumPrice = minimumPrice;
             this.buyerStart = buyerStart;
             this.buyerMax = buyerMax;
+            this.dealerStrategy = dealerStrategy;
         }
     }
 
@@ -1766,15 +1961,17 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         private final int maxRounds = 6;
         private int buyerOffersSent;
         private int events;
+        private final NegotiationStrategy buyerStrategy;
 
         private BuyerSession(String sessionId, String dealerName, double startingPrice, double maximumPrice,
-                             double sellerAsk, double sellerMin) {
+                             double sellerAsk, double sellerMin, NegotiationStrategy buyerStrategy) {
             this.sessionId = sessionId;
             this.dealerName = dealerName;
             this.startingPrice = startingPrice;
             this.maximumPrice = maximumPrice;
             this.sellerAsk = sellerAsk;
             this.sellerMin = sellerMin;
+            this.buyerStrategy = buyerStrategy;
         }
     }
 
@@ -1796,6 +1993,7 @@ public final class FipaAutoNegotiationDashboard extends JFrame {
         private String result = "";
         private double finalPrice;
         private boolean dealInsideAgreement;
+        private int resultRounds;
 
         private SessionView(String sessionId, String buyer, String dealer, String brand, String type,
                             double buyerStart, double buyerMax, double sellerAsk, double sellerMin,

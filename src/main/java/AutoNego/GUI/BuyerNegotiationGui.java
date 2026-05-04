@@ -1,5 +1,8 @@
 package AutoNego.GUI;
 
+import AutoNego.strategy.NegotiationContext;
+import AutoNego.strategy.NegotiationStrategy;
+import AutoNego.strategy.NegotiationStrategyFactory;
 import jade.core.Agent;
 import javax.swing.*;
 import javax.swing.border.*;
@@ -9,6 +12,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * GUI Screen 3 (Buyer): Negotiation Screen
@@ -68,7 +72,14 @@ public class BuyerNegotiationGui extends JFrame {
     private JButton exitButton;
     private JTextField counterField;
     private JButton sendButton;
+    private JComboBox<String> tacticCombo;
+    private JButton suggestButton;
     private double currentOffer = 0;
+
+    private double suggestFirstOffer;
+    private double suggestReserve;
+    private int suggestMaxRounds = 10;
+    private int buyerSuggestRound;
 
     // ── Palette ──────────────────────────────────────────────────────────
     private static final Color BG        = new Color(15, 17, 26);
@@ -90,7 +101,34 @@ public class BuyerNegotiationGui extends JFrame {
         this.myAgent = agent;
         this.listing = listing;
         this.currentOffer = listing.price;  // start with dealer's asking price
+        this.suggestFirstOffer = 0;
+        this.suggestReserve = listing.price;
         initUI();
+    }
+
+    public void configureSuggestionParams(double firstOffer, double reservePrice, int maxRounds) {
+        SwingUtilities.invokeLater(() -> {
+            this.suggestFirstOffer = firstOffer;
+            this.suggestReserve = reservePrice;
+            this.suggestMaxRounds = Math.max(1, maxRounds);
+            this.buyerSuggestRound = 0;
+        });
+    }
+
+    public void presetTacticFromBroker(String tacticRaw) {
+        SwingUtilities.invokeLater(() -> {
+            if (tacticRaw == null) {
+                return;
+            }
+            String t = tacticRaw.trim();
+            for (int i = 0; i < tacticCombo.getItemCount(); i++) {
+                if (tacticCombo.getItemAt(i).equalsIgnoreCase(t)
+                        || t.toLowerCase(Locale.ROOT).contains(tacticCombo.getItemAt(i).toLowerCase(Locale.ROOT))) {
+                    tacticCombo.setSelectedIndex(i);
+                    return;
+                }
+            }
+        });
     }
 
     public void setOnNegotiationListener(OnNegotiationListener listener) {
@@ -272,10 +310,40 @@ public class BuyerNegotiationGui extends JFrame {
         counterRow.add(counterField,  BorderLayout.CENTER);
         counterRow.add(sendButton,    BorderLayout.EAST);
 
-        wrapper.add(topRow,    BorderLayout.NORTH);
+        tacticCombo = new JComboBox<>(new String[]{"Linear", "Boulware", "Conceder", "none"});
+        tacticCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        tacticCombo.setBackground(FIELD_BG);
+        tacticCombo.setForeground(TEXT);
+
+        suggestButton = new JButton("Suggest next offer");
+        suggestButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        suggestButton.setBackground(ACCENT);
+        suggestButton.setForeground(new Color(10, 15, 30));
+        suggestButton.setFocusPainted(false);
+        suggestButton.addActionListener(e -> applySuggestedBuyerCounter());
+
+        JPanel tacticRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        tacticRow.setOpaque(false);
+        JLabel tacticLbl = new JLabel("Tactic:");
+        tacticLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        tacticLbl.setForeground(MUTED);
+        tacticRow.add(tacticLbl);
+        tacticRow.add(tacticCombo);
+        tacticRow.add(suggestButton);
+
+        wrapper.add(topRow, BorderLayout.NORTH);
+        wrapper.add(tacticRow, BorderLayout.CENTER);
         wrapper.add(counterRow, BorderLayout.SOUTH);
 
         return wrapper;
+    }
+
+    private void applySuggestedBuyerCounter() {
+        String raw = String.valueOf(tacticCombo.getSelectedItem());
+        NegotiationStrategy strategy = NegotiationStrategyFactory.fromTacticName(raw);
+        NegotiationContext ctx = new NegotiationContext(suggestFirstOffer, suggestReserve, suggestMaxRounds, buyerSuggestRound);
+        double v = strategy.nextOffer(ctx);
+        counterField.setText(String.format(Locale.US, "%.2f", v));
     }
 
     // ── Public API called by the agent ────────────────────────────────────
@@ -310,6 +378,12 @@ public class BuyerNegotiationGui extends JFrame {
             acceptButton.setEnabled(false);
             sendButton.setEnabled(false);
             counterField.setEnabled(false);
+            if (tacticCombo != null) {
+                tacticCombo.setEnabled(false);
+            }
+            if (suggestButton != null) {
+                suggestButton.setEnabled(false);
+            }
             exitButton.setEnabled(true);
             if (accepted) {
                 addSystemEntry("✅ Deal confirmed at RM " + String.format("%,.2f", currentOffer));
@@ -329,6 +403,12 @@ public class BuyerNegotiationGui extends JFrame {
             acceptButton.setEnabled(!isWaiting);
             sendButton.setEnabled(!isWaiting);
             counterField.setEnabled(!isWaiting);
+            if (tacticCombo != null) {
+                tacticCombo.setEnabled(!isWaiting);
+            }
+            if (suggestButton != null) {
+                suggestButton.setEnabled(!isWaiting);
+            }
             if (isWaiting) {
                 counterField.setText("Waiting for response...");
             } else {
@@ -362,6 +442,7 @@ public class BuyerNegotiationGui extends JFrame {
             return;
         }
 
+        buyerSuggestRound++;
         setWaitingState(true);
         if (negotiationListener != null) negotiationListener.onCounterOffer(counter);
     }

@@ -22,6 +22,7 @@ public class BuyerInputGui extends JFrame {
     private JTextField typeField;
     private JTextField priceField;
     private JTextField reservepriceField;
+    private JComboBox<String> buyerTacticCombo;
     private JButton confirmButton;
 
     // Callback interface so the agent can react to the confirm action
@@ -111,6 +112,32 @@ public class BuyerInputGui extends JFrame {
         form.add(buildFieldRow("Starting Price (RM)", "Your first offer e.g. 10000", priceField, LABEL_FONT, MUTED, TEXT));
         form.add(Box.createVerticalStrut(16));
         form.add(buildFieldRow("Reserve Price (RM)", "Maximum price you're willing to pay", reservepriceField, LABEL_FONT, MUTED, TEXT));
+        form.add(Box.createVerticalStrut(16));
+
+        buyerTacticCombo = new JComboBox<>(new String[]{"none", "Linear", "Boulware", "Conceder"});
+        buyerTacticCombo.setFont(FIELD_FONT);
+        buyerTacticCombo.setBackground(FIELD_BG);
+        buyerTacticCombo.setForeground(TEXT);
+        buyerTacticCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        buyerTacticCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        JPanel tacticBlock = new JPanel();
+        tacticBlock.setLayout(new BoxLayout(tacticBlock, BoxLayout.Y_AXIS));
+        tacticBlock.setOpaque(false);
+        tacticBlock.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+        JLabel tacticTitle = new JLabel("Buyer tactic (auto-negotiate)");
+        tacticTitle.setFont(LABEL_FONT.deriveFont(Font.BOLD));
+        tacticTitle.setForeground(TEXT);
+        tacticTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel tacticHint = new JLabel("Used when you enable auto on matched cars");
+        tacticHint.setFont(LABEL_FONT.deriveFont(Font.PLAIN, 11f));
+        tacticHint.setForeground(MUTED);
+        tacticHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        tacticBlock.add(tacticTitle);
+        tacticBlock.add(Box.createVerticalStrut(3));
+        tacticBlock.add(tacticHint);
+        tacticBlock.add(Box.createVerticalStrut(6));
+        tacticBlock.add(buyerTacticCombo);
+        form.add(tacticBlock);
 
         add(form, BorderLayout.CENTER);
         // ── Footer / Button ───────────────────────────────────────────────
@@ -147,7 +174,7 @@ public class BuyerInputGui extends JFrame {
             public void windowClosing(WindowEvent e) { myAgent.doDelete(); }
         });
 
-        setSize(480, 380);
+        setSize(480, 440);
         centerOnScreen();
         setResizable(false);
     }
@@ -240,6 +267,10 @@ public class BuyerInputGui extends JFrame {
         if (listener != null) {
             listener.onConfirm(brand, type, price, reservePrice);
         }
+    }
+
+    public String getSelectedBuyerTactic() {
+        return String.valueOf(buyerTacticCombo.getSelectedItem());
     }
 
     /** Call this from outside after agent receives a response, to re-enable the button */

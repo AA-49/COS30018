@@ -4,9 +4,9 @@ import AutoNego.GUI.DealerBuyerScreen;
 import AutoNego.GUI.DealerInputGui;
 import AutoNego.GUI.DealerNegotiationGui;
 import AutoNego.DemoMessageCodec;
-import AutoNego.strategy.LinearStrategy;
 import AutoNego.strategy.NegotiationContext;
 import AutoNego.strategy.NegotiationStrategy;
+import AutoNego.strategy.NegotiationStrategyFactory;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -43,15 +43,17 @@ public class FipaDealerAgent extends Agent {
     protected void setup() {
         inputGui = new DealerInputGui(this);
         // dealer send listing
-        inputGui.setOnListingListener(listings -> {
+        inputGui.setOnListingListener((listings, dealerTactic) -> {
             ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
             msg.addReceiver(new AID("broker", AID.ISLOCALNAME));
             msg.setConversationId("dealer-listings");
+            String tactic = dealerTactic == null || dealerTactic.isBlank() ? "none" : dealerTactic;
             msg.setContent(DemoMessageCodec.encodeRecords(listings.stream()
                     .map(l -> DemoMessageCodec.encodeFields(
                             l.brand, l.type,
                             Double.toString(l.price),
-                            Double.toString(l.minAcceptPrice)))
+                            Double.toString(l.minAcceptPrice),
+                            tactic))
                     .toArray(String[]::new)));
             send(msg);
         });
@@ -154,8 +156,7 @@ public class FipaDealerAgent extends Agent {
 
     // what to do when negotiation start
     private void startNegotiationProtocol(ACLMessage startMsg) {
-        // Broker sends 7 fields: sessionId, buyerName, brand, type, price, listingId,
-        // minAcceptPrice
+        // Broker sends 7+ fields: ... minAcceptPrice, buyerTactic, dealerTactic (optional)
         String[] parts = DemoMessageCodec.decodeFields(startMsg.getContent(), 7);
         String sessionId = parts[0];
         String buyerName = parts[1];
@@ -164,6 +165,7 @@ public class FipaDealerAgent extends Agent {
         double initialPrice = Double.parseDouble(parts[4]);
         String listingId = parts[5];
         double minAcceptPrice = Double.parseDouble(parts[6]);
+        String dealerTactic = parts.length > 8 ? parts[8] : "none";
 
         sessionToBuyer.put(sessionId, buyerName);
         sessionToListingId.put(sessionId, listingId);
@@ -181,7 +183,7 @@ public class FipaDealerAgent extends Agent {
 
         if (auto) {
             // Auto mode: strategy-driven without GUI.
-            NegotiationStrategy strategy = new LinearStrategy();
+            NegotiationStrategy strategy = NegotiationStrategyFactory.fromTacticName(dealerTactic);
             // Dealer: initialOffer = asking price (high), reserve = minAcceptPrice (low)
             NegotiationContext ctx = new NegotiationContext(initialPrice, minAcceptPrice, 10, 0);
             sessionToAutoCtx.put(sessionId, ctx);
@@ -196,7 +198,10 @@ public class FipaDealerAgent extends Agent {
             negotiationWindows.put(sessionId, guiFuture);
 
             SwingUtilities.invokeLater(() -> {
-                DealerNegotiationGui gui = new DealerNegotiationGui(this, buyerName, brand, type, initialPrice);
+                DealerNegotiationGui gui = new DealerNegotiationGui(this, buyerName, brand, type, initialPrice,
+                        minAcceptPrice);
+                gui.configureSuggestionRounds(10);
+                gui.presetTacticFromBroker(dealerTactic);
                 gui.display();
                 gui.setWaitingState(true);
                 gui.addDealerOffer(initialPrice, "Your Initial Ask");
